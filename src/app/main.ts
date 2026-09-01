@@ -8,6 +8,7 @@ import { noteEditor } from '../features/editor/note-editor.js';
 import { browse } from '../features/browse/browse.js';
 import { reviewer } from '../features/review/reviewer.js';
 import { statsPage } from '../features/stats/stats.js';
+import { managePage } from '../features/io/manage.js';
 import { fsrsLab } from '../features/debug/fsrs-lab.js';
 import { storageCheck } from '../features/debug/storage-check.js';
 import { sampleData } from '../features/debug/sample-data.js';
@@ -16,6 +17,7 @@ const NAV: Array<{ href: string; label: string }> = [
   { href: '#/', label: 'Decks' },
   { href: '#/browse', label: 'Browse' },
   { href: '#/stats', label: 'Stats' },
+  { href: '#/manage', label: 'Import/Export' },
   { href: '#/settings', label: 'Settings' },
 ];
 
@@ -54,6 +56,7 @@ function routes(ctx: AppContext): Router {
   return new Router()
     .add('/', () => deckList(ctx))
     .add('/stats', () => statsPage(ctx))
+    .add('/manage', () => managePage(ctx))
     .add('/settings', () => placeholder('Settings', 'Settings land in step 10.'))
     .add('/study/:deckId', (p) => reviewer(ctx, p['deckId']!))
     .add('/add', (_p, query) => noteEditor(ctx, query.get('deck') ? { deckId: query.get('deck')! } : {}))
