@@ -1,5 +1,9 @@
+/** Application entry point: bootstrap the collection, then route. */
+
 import { el, render } from '../ui/dom.js';
 import { Router } from './router.js';
+import { bootstrap, type AppContext } from './context.js';
+import { deckList } from '../features/decks/deck-list.js';
 import { fsrsLab } from '../features/debug/fsrs-lab.js';
 import { storageCheck } from '../features/debug/storage-check.js';
 
@@ -7,18 +11,11 @@ const NAV: Array<{ href: string; label: string }> = [
   { href: '#/', label: 'Decks' },
   { href: '#/stats', label: 'Stats' },
   { href: '#/settings', label: 'Settings' },
-  { href: '#/debug/fsrs', label: 'FSRS lab' },
-  { href: '#/debug/storage', label: 'Storage' },
 ];
 
 function shell(): { root: HTMLElement; outlet: HTMLElement; setActive: (path: string) => void } {
   const links = NAV.map((item) => el('a', { href: item.href, text: item.label }));
-  const topbar = el(
-    'header.topbar',
-    {},
-    el('span.brand', { text: 'Flashy' }),
-    el('nav', {}, links),
-  );
+  const topbar = el('header.topbar', {}, el('span.brand', { text: 'Flashy' }), el('nav', {}, links));
   const outlet = el('main', {});
   const root = el('div', {}, topbar, outlet);
 
@@ -38,22 +35,41 @@ function placeholder(title: string, note: string): HTMLElement {
   return el('section', {}, el('h1', { text: title }), el('div.empty', { text: note }));
 }
 
-function main(): void {
+function fatal(message: string): HTMLElement {
+  return el(
+    'section',
+    {},
+    el('h1', { text: 'Flashy could not start' }),
+    el('div.card', { style: { borderColor: 'var(--danger)' } }, el('p', { text: message })),
+  );
+}
+
+function routes(ctx: AppContext): Router {
+  return new Router()
+    .add('/', () => deckList(ctx))
+    .add('/stats', () => placeholder('Stats', 'Stats land in step 8.'))
+    .add('/settings', () => placeholder('Settings', 'Settings land in step 10.'))
+    .add('/study/:deckId', () => placeholder('Study', 'The review screen lands in step 7.'))
+    .add('/add', () => placeholder('Add note', 'The editor lands in step 6.'))
+    .add('/debug/fsrs', () => fsrsLab())
+    .add('/debug/storage', () => storageCheck())
+    .notFound(() => placeholder('Not found', 'No such page.'));
+}
+
+async function main(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app not found');
 
   const { root, outlet, setActive } = shell();
   render(app, root);
+  render(outlet, el('div.empty', { text: 'Opening collection…' }));
 
-  new Router()
-    .add('/', () => placeholder('Decks', 'Deck list lands in step 5.'))
-    .add('/stats', () => placeholder('Stats', 'Stats land in step 8.'))
-    .add('/settings', () => placeholder('Settings', 'Settings land in step 10.'))
-    .add('/debug/fsrs', () => fsrsLab())
-    .add('/debug/storage', () => storageCheck())
-    .notFound(() => placeholder('Not found', 'No such page.'))
-    .observe(setActive)
-    .start(outlet);
+  try {
+    const ctx = await bootstrap();
+    routes(ctx).observe(setActive).start(outlet);
+  } catch (error) {
+    render(outlet, fatal(error instanceof Error ? error.message : String(error)));
+  }
 }
 
-main();
+void main();
