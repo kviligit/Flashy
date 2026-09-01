@@ -26,8 +26,13 @@ const NAV: Array<{ href: string; label: string }> = [
 
 function shell(): { root: HTMLElement; outlet: HTMLElement; setActive: (path: string) => void } {
   const links = NAV.map((item) => el('a', { href: item.href, text: item.label }));
-  const topbar = el('header.topbar', {}, el('span.brand', { text: 'Flashy' }), el('nav', {}, links));
-  const outlet = el('main', {});
+  const topbar = el(
+    'header.topbar',
+    {},
+    el('span.brand', { text: 'Flashy' }),
+    el('nav', { 'aria-label': 'Main' }, links),
+  );
+  const outlet = el('main', { id: 'main', tabindex: '-1' });
   const root = el('div', {}, topbar, outlet);
 
   const setActive = (path: string) => {
@@ -44,6 +49,22 @@ function shell(): { root: HTMLElement; outlet: HTMLElement; setActive: (path: st
 
 function placeholder(title: string, note: string): HTMLElement {
   return el('section', {}, el('h1', { text: title }), el('div.empty', { text: note }));
+}
+
+const TITLES: Array<[RegExp, string]> = [
+  [/^\/$/, 'Decks'],
+  [/^\/study/, 'Study'],
+  [/^\/add/, 'Add note'],
+  [/^\/edit/, 'Edit note'],
+  [/^\/browse/, 'Browse'],
+  [/^\/stats/, 'Stats'],
+  [/^\/manage/, 'Import & export'],
+  [/^\/settings/, 'Settings'],
+  [/^\/debug/, 'Debug'],
+];
+
+function titleFor(path: string): string {
+  return TITLES.find(([pattern]) => pattern.test(path))?.[1] ?? 'Flashy';
 }
 
 function fatal(message: string): HTMLElement {
@@ -73,6 +94,29 @@ function routes(ctx: AppContext): Router {
     .notFound(() => placeholder('Not found', 'No such page.'));
 }
 
+/**
+ * Register the service worker so the app works offline. Failure is not
+ * fatal: without it Flashy still runs, it just needs the files served.
+ */
+function registerServiceWorker(): void {
+  if (!('serviceWorker' in navigator)) return;
+  // file:// has no service worker support and would log a scary error.
+  if (window.location.protocol === 'file:') return;
+
+  const register = (): void => {
+    void navigator.serviceWorker.register('./sw.js').catch(() => {
+      // Offline support is a bonus, not a requirement.
+    });
+  };
+
+  // Registration is deferred until the page has loaded so it does not
+  // compete with the first paint — but bootstrapping is async, so by the
+  // time we get here the load event has usually already fired, and adding
+  // a listener then would wait forever.
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, { once: true });
+}
+
 async function main(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app not found');
@@ -83,7 +127,15 @@ async function main(): Promise<void> {
 
   try {
     const ctx = await bootstrap();
-    routes(ctx).observe(setActive).start(outlet);
+    routes(ctx)
+      .observe((path) => {
+        setActive(path);
+        // Announce the new view to screen readers, and give the keyboard
+        // somewhere sensible to land after a navigation.
+        document.title = `${titleFor(path)} · Flashy`;
+      })
+      .start(outlet);
+    registerServiceWorker();
   } catch (error) {
     render(outlet, fatal(error instanceof Error ? error.message : String(error)));
   }

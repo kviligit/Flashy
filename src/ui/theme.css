@@ -17,7 +17,7 @@
   /* Text */
   --text:          #e6edf3;
   --text-dim:      #9aa7b4;
-  --text-faint:    #6b7684;
+  --text-faint:    #7d8a99;
 
   /* Accents */
   --accent:        #4f8cff;
@@ -522,3 +522,41 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 .range-tabs { display: flex; gap: 4px; }
 .range-tabs button { padding: 3px 10px; font-size: 0.8rem; }
 .range-tabs button[aria-pressed="true"] { background: var(--surface-3); border-color: var(--accent); color: var(--text); }
+
+/* --- Accessibility ----------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 300;
+  background: var(--accent);
+  color: var(--on-accent);
+  padding: 10px 16px;
+  border-radius: 0 0 var(--radius-sm) 0;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+  text-decoration: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
