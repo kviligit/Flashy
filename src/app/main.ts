@@ -6,6 +6,7 @@ import { bootstrap, type AppContext } from './context.js';
 import { deckList } from '../features/decks/deck-list.js';
 import { noteEditor } from '../features/editor/note-editor.js';
 import { browse } from '../features/browse/browse.js';
+import { reviewer } from '../features/review/reviewer.js';
 import { fsrsLab } from '../features/debug/fsrs-lab.js';
 import { storageCheck } from '../features/debug/storage-check.js';
 
@@ -52,7 +53,7 @@ function routes(ctx: AppContext): Router {
     .add('/', () => deckList(ctx))
     .add('/stats', () => placeholder('Stats', 'Stats land in step 8.'))
     .add('/settings', () => placeholder('Settings', 'Settings land in step 10.'))
-    .add('/study/:deckId', () => placeholder('Study', 'The review screen lands in step 7.'))
+    .add('/study/:deckId', (p) => reviewer(ctx, p['deckId']!))
     .add('/add', (_p, query) => noteEditor(ctx, query.get('deck') ? { deckId: query.get('deck')! } : {}))
     .add('/edit/:noteId', (p) => noteEditor(ctx, { noteId: p['noteId']! }))
     .add('/browse', (_p, query) => browse(ctx, query.get('q') ?? ''))
