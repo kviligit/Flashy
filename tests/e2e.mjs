@@ -375,7 +375,16 @@ async function run(playwright) {
     check('dismissing the install hint sticks', (await tabPage.locator('[data-hint="install"]').count()) === 0);
     await iosTab.close();
 
-    const iosApp = await browser.newContext({ ...devices['iPhone 13'] });
+    // The iPhone SE is the tightest modern iPhone — 375x667, and no
+    // safe-area insets because it still has a home button — so the
+    // installed-app checks run at that size rather than a roomier one.
+    const iosApp = await browser.newContext({
+      viewport: { width: 375, height: 647 },
+      deviceScaleFactor: 2,
+      isMobile: true,
+      hasTouch: true,
+      userAgent: devices['iPhone 13'].userAgent,
+    });
     await iosApp.addInitScript(() => {
       Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
     });
@@ -407,10 +416,21 @@ async function run(playwright) {
       .locator('[data-rating]')
       .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
     check('answer buttons stay tappable on an iPhone', sizes.every((h) => h >= 44), sizes.join(','));
-    const noOverflow = await appPage.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
-    );
-    check('nothing overflows the iPhone viewport', noOverflow);
+    const layout = await appPage.evaluate(() => {
+      const bar = document.querySelector('.answer-bar');
+      const rect = bar.getBoundingClientRect();
+      const nav = document.querySelector('.topbar nav');
+      return {
+        noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        barVisible: rect.top >= 0 && rect.bottom <= window.innerHeight,
+        navFits: nav ? nav.scrollWidth <= nav.clientWidth + 1 : true,
+        scrolls: document.documentElement.scrollHeight > window.innerHeight,
+      };
+    });
+    check('nothing overflows the iPhone SE viewport', layout.noOverflow);
+    check('the nav fits without clipping on an iPhone SE', layout.navFits);
+    check('the answer buttons are reachable without scrolling', layout.barVisible);
+    check('the review screen needs no scrolling on an iPhone SE', !layout.scrolls);
     await iosApp.close();
 
     check('no uncaught errors on iOS', iosErrors.length === 0, iosErrors.slice(0, 3).join(' | '));

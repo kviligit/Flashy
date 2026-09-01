@@ -1,5 +1,31 @@
 # Flashy
 
+> ### ⚠️ Written by an AI, largely unreviewed by a human
+>
+> Every line of this repository — code, tests, documentation, this warning —
+> was written by Claude (Opus 5) in a single session, from a one-paragraph
+> brief. A human directed it and looked at screenshots; nobody has read the
+> code line by line.
+>
+> **What that is worth.** The FSRS implementation is ported from the
+> reference Rust implementation and pinned by two golden vectors taken from
+> that project's own test suite, so the algorithm is not improvised. There
+> are 203 unit tests and 43 end-to-end checks against a real browser, and
+> the storage layer is verified against both of its backends. Several real
+> bugs were caught that way and are recorded in the commit history.
+>
+> **What that is not worth.** Passing tests written by the same author that
+> wrote the code is weaker evidence than it looks: a blind spot in the
+> implementation is likely to be a blind spot in its tests. No human has
+> audited the scheduling logic, the migration path, or the sanitiser. It
+> has never run on real phone hardware. It has never been used by anyone
+> for actual studying.
+>
+> **If you are going to rely on it**, keep backups (Import & export writes a
+> complete one), and read `src/fsrs/` and `src/scheduler/` yourself before
+> trusting your study time to them.
+
+
 A local-first spaced-repetition flashcard webapp implementing **FSRS-6**.
 Dark mode only. **Zero runtime dependencies** — no framework, no bundler, no
 package installs. TypeScript compiled straight to native ES modules that the
@@ -150,7 +176,7 @@ to run on fewer than 100 dated reviews.
 
 ```
 npm test    203 unit tests
-npm run e2e  40 end-to-end checks in a real browser
+npm run e2e  43 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:
@@ -175,7 +201,8 @@ Some of the load-bearing ones:
 - **iOS checks** in an emulated iPhone, covering both a Safari tab and an
   installed app: the install advice appears in one and not the other, the
   storage report matches, dismissal sticks, and the answer buttons stay
-  tappable.
+  tappable. The installed-app checks run at iPhone SE size — the tightest
+  modern iPhone — and assert the review screen needs no scrolling there.
 
 ## Debug pages
 

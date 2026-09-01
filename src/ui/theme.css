@@ -627,10 +627,22 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   table.browse td.q { max-width: 150px; }
 }
 
-/* Keep the answer buttons clear of a phone's home indicator. */
+/*
+ * Keep content clear of a phone's home indicator where there is one. The
+ * fixed part is small deliberately: a device without an indicator (an
+ * iPhone SE, say) gets no inset, and a large fixed padding there is enough
+ * to push the review screen into scrolling for no reason.
+ */
 @supports (padding: env(safe-area-inset-bottom)) {
-  main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  main { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
   .topbar { padding-left: max(var(--pad), env(safe-area-inset-left)); }
+}
+
+/* Short screens — an iPhone SE in a Safari tab is about 553px tall. */
+@media (max-height: 700px) {
+  main { padding-top: 12px; }
+  .review-stage { padding: 12px 4px; }
+  .reviewer { min-height: 0; }
 }
 
 
