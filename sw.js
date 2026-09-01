@@ -2,18 +2,22 @@
  * Service worker: makes Flashy work with no network at all.
  *
  * The collection already lives in IndexedDB, so offline support is only a
- * question of having the app's own files. Strategy:
+ * question of having the app's own files.
  *
- *   - navigation requests: network first, falling back to the cached shell,
- *     so a reload picks up a new build when there is a connection and still
- *     works when there is not;
- *   - everything else same-origin: cache first, revalidating in the
- *     background, so the app starts instantly and updates quietly.
+ * Strategy: network first, falling back to the cache, for everything
+ * same-origin.
+ *
+ * The obvious alternative — cache first with a background revalidate — is
+ * faster but wrong here. The app is a graph of ES modules that import each
+ * other, so after a deploy it would happily serve a cached entry module
+ * alongside freshly fetched dependencies and run a half-old, half-new
+ * build. Consistency beats a few milliseconds. Offline still works
+ * identically, because that is exactly when the fallback fires.
  *
  * Bump CACHE_VERSION to evict everything on the next activation.
  */
 
-const CACHE_VERSION = 'flashy-v1';
+const CACHE_VERSION = 'flashy-v2';
 
 const SHELL = [
   './',
@@ -51,32 +55,19 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          void caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() => caches.match('./index.html').then((cached) => cached ?? Response.error())),
-    );
-    return;
-  }
+  const fallback = request.mode === 'navigate' ? './index.html' : request;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const copy = response.clone();
-            void caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached ?? Response.error());
-
-      return cached ?? network;
-    }),
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const copy = response.clone();
+          void caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() =>
+        caches.match(fallback).then((cached) => cached ?? Response.error()),
+      ),
   );
 });

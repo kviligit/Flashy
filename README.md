@@ -24,6 +24,17 @@ Any static host will serve it — copy `index.html`, `icon.svg`,
 `manifest.webmanifest`, `sw.js`, `src/ui/theme.css` and `dist/` and you are
 done. It installs as a PWA and works fully offline.
 
+### GitHub Pages
+
+`.github/workflows/pages.yml` builds the app and publishes it. `dist/` is
+not committed, so Pages cannot serve the repository directly — the workflow
+compiles it, runs the unit suite, and uploads the result.
+
+To turn it on once: **repository Settings → Pages → Source → GitHub
+Actions**. Every push then redeploys. All paths in the app are relative, so
+it works correctly from a project subpath such as
+`https://<user>.github.io/Flashy/`.
+
 ## Architecture
 
 Strict layering. Each layer may only import from the ones below it, so any

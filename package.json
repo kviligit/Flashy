@@ -12,5 +12,11 @@
     "clean": "rm -rf dist",
     "e2e": "tsc && node tests/e2e.mjs",
     "check": "npm test && npm run e2e"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
