@@ -209,6 +209,11 @@ export interface ReviewLog extends Entity {
    * than a recomputation. Cheap: one small object per review.
    */
   snapshot: Card;
+  /**
+   * Sibling cards this answer buried, so undo can unbury exactly those and
+   * leave siblings buried by some earlier answer alone.
+   */
+  siblingsBuried: string[];
 }
 
 // --- Collection metadata -------------------------------------------------
