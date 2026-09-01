@@ -222,3 +222,30 @@ test('renderCard resolves cloze against the card’s ordinal', () => {
 test('cardPreview gives a plain-text one-liner', () => {
   assert.equal(cardPreview(basicNoteType(), { Front: '<b>bon</b>jour', Back: 'x' }, 0), 'bonjour');
 });
+
+test('knownFields decides whether an unknown reference is visible or empty', () => {
+  const fields = { Front: 'x' };
+  // No knownFields: a typo stays visible, so it is obvious while editing.
+  assert.equal(renderTemplate('{{Typo}}', { fields, ord: 0, side: 'question' }), '{{Typo}}');
+
+  // With knownFields: the field cannot ever hold content, so it renders as
+  // nothing — which is what stops a stale reference keeping a card alive
+  // after its field has been deleted.
+  assert.equal(
+    renderTemplate('{{Typo}}', {
+      fields,
+      ord: 0,
+      side: 'question',
+      knownFields: new Set(['Front']),
+    }),
+    '',
+  );
+});
+
+test('a card is not generated from a template referencing a deleted field', () => {
+  const nt = basicReversedNoteType();
+  // Simulate "Back" having been removed from the note type while its
+  // template still mentions it.
+  const stripped = { ...nt, fields: [{ name: 'Front' }] };
+  assert.deepEqual(generateOrds(stripped, { Front: 'a' }), [0]);
+});

@@ -60,3 +60,52 @@ test('router decodes params and parses the query string', async () => {
 
   assert.deepEqual(got, { params: { name: 'my deck' }, q: 'due' });
 });
+
+// The DOM helper is exercised in the browser, but this one behaviour is
+// worth pinning down here: `value` and `checked` are properties, not
+// attributes. Setting `value` as an attribute silently does nothing on a
+// <textarea>, which left every textarea in the app rendering empty.
+test('el() sets value and checked as properties', () => {
+  const created: Array<{ tag: string; props: Record<string, unknown> }> = [];
+
+  class FakeElement {
+    tagName: string;
+    value = '';
+    checked = false;
+    attributes: Record<string, string> = {};
+    classList = { add: () => {} };
+    style = {};
+    textContent = '';
+    children: unknown[] = [];
+    constructor(tag: string) {
+      this.tagName = tag.toUpperCase();
+    }
+    setAttribute(name: string, value: string) {
+      this.attributes[name] = value;
+    }
+    addEventListener() {}
+    appendChild(child: unknown) {
+      this.children.push(child);
+    }
+  }
+
+  globalThis.document = {
+    createElement: (tag: string) => {
+      const node = new FakeElement(tag);
+      created.push({ tag, props: node as unknown as Record<string, unknown> });
+      return node;
+    },
+    createTextNode: (text: string) => ({ text }),
+  } as never;
+
+  // Import lazily so the fake document is in place first.
+  return import('../ui/dom.js').then(({ el }) => {
+    const area = el('textarea', { value: 'hello' }) as unknown as FakeElement;
+    assert.equal(area.value, 'hello', 'value must land on the property');
+    assert.equal(area.attributes['value'], undefined, 'and not on an attribute');
+
+    const box = el('input', { type: 'checkbox', checked: true }) as unknown as FakeElement;
+    assert.equal(box.checked, true);
+    assert.equal(box.attributes['type'], 'checkbox', 'other props are still attributes');
+  });
+});

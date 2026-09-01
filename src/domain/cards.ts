@@ -64,9 +64,15 @@ export function generateOrds(noteType: NoteType, fields: Record<string, string>)
     return [...ordinals].sort((a, b) => a - b);
   }
 
+  const known = new Set(noteType.fields.map((f) => f.name));
   const ords: number[] = [];
   for (const [index, template] of noteType.templates.entries()) {
-    const question = renderTemplate(template.question, { fields, ord: index, side: 'question' });
+    const question = renderTemplate(template.question, {
+      fields,
+      ord: index,
+      side: 'question',
+      knownFields: known,
+    });
     if (!isBlankQuestion(question)) ords.push(index);
   }
   return ords;
@@ -82,12 +88,19 @@ export function renderCard(
   const template = noteType.templates[templateIndex] ?? noteType.templates[0];
   if (!template) return { question: '', answer: '' };
 
-  const question = renderTemplate(template.question, { fields, ord, side: 'question' });
+  const known = new Set(noteType.fields.map((f) => f.name));
+  const question = renderTemplate(template.question, {
+    fields,
+    ord,
+    side: 'question',
+    knownFields: known,
+  });
   const answer = renderTemplate(template.answer, {
     fields,
     ord,
     side: 'answer',
     frontSide: question,
+    knownFields: known,
   });
   return { question, answer };
 }

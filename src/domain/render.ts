@@ -23,6 +23,16 @@ export interface RenderContext {
   /** Rendered question, for `{{FrontSide}}`. */
   frontSide?: string;
   side: Side;
+  /**
+   * The field names the note type declares.
+   *
+   * When given, a reference to anything outside this set renders as empty:
+   * the field cannot ever hold content, so a template mentioning it must
+   * not be able to keep a card alive. When omitted, an unknown reference is
+   * left visible as `{{Typo}}`, which is what makes a template mistake
+   * obvious while editing.
+   */
+  knownFields?: ReadonlySet<string>;
 }
 
 const CLOZE_PATTERN = /\{\{c(\d+)::([\s\S]*?)(?:::([\s\S]*?))?\}\}/g;
@@ -136,7 +146,9 @@ function resolveFields(template: string, ctx: RenderContext): string {
     if (name === 'FrontSide') return ctx.frontSide ?? '';
 
     const value = ctx.fields[name];
-    if (value === undefined) return match; // leave unknown references visible
+    if (value === undefined) {
+      return ctx.knownFields ? '' : match; // see RenderContext.knownFields
+    }
 
     switch (filter) {
       case 'text':

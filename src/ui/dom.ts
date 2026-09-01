@@ -29,6 +29,12 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     if (value === null || value === undefined || value === false) continue;
     if (key === 'class') node.classList.add(...String(value).split(/\s+/).filter(Boolean));
     else if (key === 'text') node.textContent = String(value);
+    // `value` and `checked` must be set as properties: a <textarea> has no
+    // value attribute at all, and `checked` as an attribute only sets the
+    // default, which diverges the moment anything toggles it.
+    else if ((key === 'value' || key === 'checked') && key in node) {
+      (node as unknown as Record<string, unknown>)[key] = key === 'checked' ? Boolean(value) : String(value);
+    }
     else if (key === 'html') node.innerHTML = String(value);
     else if (key === 'style' && typeof value === 'object') Object.assign(node.style, value);
     else if (key.startsWith('on') && typeof value === 'function') {
