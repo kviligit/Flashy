@@ -1,0 +1,14 @@
+{
+  "name": "flashy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local-first flashcard webapp implementing FSRS-6.",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "dev": "tsc && python3 -m http.server 5173",
+    "clean": "rm -rf dist"
+  }
+}
