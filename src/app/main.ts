@@ -1,10 +1,12 @@
 import { el, render } from '../ui/dom.js';
 import { Router } from './router.js';
+import { fsrsLab } from '../features/debug/fsrs-lab.js';
 
 const NAV: Array<{ href: string; label: string }> = [
   { href: '#/', label: 'Decks' },
   { href: '#/stats', label: 'Stats' },
   { href: '#/settings', label: 'Settings' },
+  { href: '#/debug/fsrs', label: 'FSRS lab' },
 ];
 
 function shell(): { root: HTMLElement; outlet: HTMLElement; setActive: (path: string) => void } {
@@ -45,6 +47,7 @@ function main(): void {
     .add('/', () => placeholder('Decks', 'Deck list lands in step 5.'))
     .add('/stats', () => placeholder('Stats', 'Stats land in step 8.'))
     .add('/settings', () => placeholder('Settings', 'Settings land in step 10.'))
+    .add('/debug/fsrs', () => fsrsLab())
     .notFound(() => placeholder('Not found', 'No such page.'))
     .observe(setActive)
     .start(outlet);
