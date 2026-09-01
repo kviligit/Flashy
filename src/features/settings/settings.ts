@@ -5,8 +5,10 @@ import { confirmModal, promptModal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
+import type { StorageStatus } from '../../storage/index.js';
 import { makeDeckConfig, makeMeta } from '../../domain/defaults.js';
 import { cloneNoteType, deleteNoteType, noteTypeUsage } from '../../collection/notetypes.js';
+import { estimate, formatBytes, requestPersistence } from '../../storage/index.js';
 
 export function settingsPage(ctx: AppContext): HTMLElement {
   const root = el('section', {});
@@ -44,9 +46,14 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
   );
   cutoffSelect.value = String(meta.dayCutoffHour);
 
+  const storage = ctx.storage ?? (await requestPersistence());
+  const used = await estimate();
+
   render(
     root,
     el('h1', { text: 'Settings' }),
+
+    storageCard(ctx, storage, used, refresh),
 
     el(
       'div.card.col',
@@ -185,4 +192,80 @@ async function remove(ctx: AppContext, id: string, name: string, refresh: () => 
   } catch (error) {
     toast(error instanceof Error ? error.message : String(error), 'error');
   }
+}
+
+
+/**
+ * Where the collection lives and whether it is safe there.
+ *
+ * Worth showing plainly: a browser may evict "best effort" storage when the
+ * device runs low, and on a phone that means losing the review history with
+ * no warning. If the browser has not granted durable storage, the honest
+ * advice is to install the app and keep backups.
+ */
+function storageCard(
+  ctx: AppContext,
+  storage: StorageStatus,
+  used: { usage?: number; quota?: number },
+  refresh: () => void,
+): HTMLElement {
+  const size =
+    used.usage === undefined
+      ? 'size unknown'
+      : `${formatBytes(used.usage)} used${used.quota ? ` of ${formatBytes(used.quota)} available` : ''}`;
+
+  let state: string;
+  let colour: string;
+  if (!ctx.persistent) {
+    state = 'Not saved at all';
+    colour = 'var(--danger)';
+  } else if (storage.persisted) {
+    state = 'Saved on this device, protected from eviction';
+    colour = 'var(--good)';
+  } else if (!storage.supported) {
+    state = 'Saved on this device; this browser cannot promise to keep it';
+    colour = 'var(--hard)';
+  } else {
+    state = 'Saved on this device, but the browser may evict it if space runs low';
+    colour = 'var(--hard)';
+  }
+
+  return el(
+    'div.card.col',
+    { 'data-card': 'storage' },
+    el('h3', { text: 'Storage' }),
+    el('p', {
+      'data-role': 'storage-state',
+      text: state,
+      style: { color: colour, margin: '0' },
+    }),
+    el('p.faint', { text: `${size}. Nothing is ever uploaded.`, style: { margin: '0' } }),
+    !ctx.persistent
+      ? el('p.faint', {
+          text: ctx.storageWarning ?? 'This browser would not open a database, so the collection lasts only until you close the tab.',
+        })
+      : null,
+    el(
+      'div.row',
+      {},
+      storage.persisted || !storage.supported
+        ? null
+        : button(
+            'Ask again for durable storage',
+            () => {
+              void requestPersistence().then((result) => {
+                toast(
+                  result.persisted
+                    ? 'Granted — the collection is protected now.'
+                    : 'The browser declined. Installing the app to your home screen usually persuades it.',
+                  result.persisted ? 'success' : 'info',
+                );
+                refresh();
+              });
+            },
+            {},
+          ),
+      button('Back up now', () => navigate('/manage'), { class: storage.persisted ? '' : 'primary' }),
+    ),
+  );
 }

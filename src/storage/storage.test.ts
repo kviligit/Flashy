@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { MemoryDb } from './memory.js';
 import { CHECK_COUNT, runConformance } from './conformance.js';
-import { compareKeys, inRange, INDEXES, STORE_NAMES } from './types.js';
+import { CONTENT_STORES, compareKeys, inRange, INDEXES, STORE_NAMES, VERSION_FIELD } from './types.js';
 
 test('the memory backend satisfies the storage conformance suite', async () => {
   const db = new MemoryDb();
@@ -39,6 +39,7 @@ test('every store declares its indexes', () => {
     'cards',
     'deckConfigs',
     'decks',
+    'deletions',
     'meta',
     'noteTypes',
     'notes',
@@ -48,4 +49,17 @@ test('every store declares its indexes', () => {
   assert.ok(INDEXES.cards.includes('due'));
   assert.ok(INDEXES.cards.includes('deckId'));
   assert.ok(INDEXES.cards.includes('noteId'));
+});
+
+test('every content store indexes the field the change feed scans', () => {
+  // Without the index this is a full read on IndexedDB at best, and an
+  // outright error at worst — and the in-memory backend would hide it.
+  for (const store of CONTENT_STORES) {
+    const field = VERSION_FIELD[store];
+    assert.ok(
+      (INDEXES[store] as readonly string[]).includes(field),
+      `${store} must index "${field}"`,
+    );
+  }
+  assert.ok(INDEXES.deletions.includes('deletedAt'));
 });

@@ -7,7 +7,12 @@
  */
 
 import { Scheduler } from '../scheduler/index.js';
-import { openCollection, seedIfEmpty, type Db } from '../storage/index.js';
+import {
+  openCollection,
+  seedIfEmpty,
+  type Db,
+  type StorageStatus,
+} from '../storage/index.js';
 
 export interface AppContext {
   db: Db;
@@ -15,6 +20,12 @@ export interface AppContext {
   /** False when the collection lives only in memory for this page load. */
   persistent: boolean;
   storageWarning?: string;
+  /**
+   * Whether the browser agreed not to evict the collection. Reported rather
+   * than enforced: the app works either way, but on a phone the difference
+   * is whether a low-storage moment can silently take the review history.
+   */
+  storage?: StorageStatus;
 }
 
 export async function bootstrap(): Promise<AppContext> {
@@ -30,5 +41,6 @@ export async function bootstrap(): Promise<AppContext> {
     persistent: opened.persistent,
   };
   if (opened.reason) context.storageWarning = opened.reason;
+  if (opened.storage) context.storage = opened.storage;
   return context;
 }

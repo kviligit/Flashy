@@ -44,7 +44,7 @@ one of them can be replaced without touching the others.
 |---|---|---|
 | Algorithm | `src/fsrs/` | Pure FSRS-6. No I/O, no DOM, no clock, no randomness. |
 | Domain | `src/domain/` | Entities, template rendering, card generation, deck paths. |
-| Storage | `src/storage/` | `Db`/`Store` interfaces + IndexedDB and in-memory backends. |
+| Storage | `src/storage/` | `Db`/`Store` interfaces, IndexedDB and in-memory backends, change tracking. |
 | Scheduler | `src/scheduler/` | Study days, queue building, answering, undo. |
 | Collection | `src/collection/` | Note and note-type operations, stats, import/export, optimiser. |
 | UI kit | `src/ui/` | Theme tokens, DOM helpers, modals, toasts, charts. Knows nothing about flashcards. |
@@ -72,6 +72,28 @@ recomputation, and what the parameter optimiser learns from.
 arguments. Nothing in it reads a clock or calls `Math.random` on its own.
 That is the reason its 34 tests are deterministic, and the reason a 90-day
 study simulation can run in milliseconds in the test suite.
+
+## Data, and your phone
+
+The collection lives in IndexedDB on the device. Nothing is uploaded, there
+is no account, and the app works with the network off.
+
+On a phone that raises a real risk: browsers treat ordinary IndexedDB as
+"best effort" and may evict it when storage runs low, which here would mean
+losing months of review history without warning. So the app asks for
+[durable storage](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist)
+on startup and reports the answer under **Settings → Storage**. Browsers
+decide differently — some grant it silently, some only once the app is
+installed to the home screen, some never — so the honest advice is to
+install it and keep the occasional backup.
+
+### Syncing between devices
+
+Not implemented, and deliberately not designed. What *is* in place is the
+groundwork that cannot be retrofitted: deletions leave tombstones, every
+record carries an indexed version, and there is a change feed
+(`changesSince`) that a transport can attach to. See
+[docs/sync.md](docs/sync.md) for the seam and the decisions behind it.
 
 ## FSRS-6
 
@@ -106,8 +128,8 @@ to run on fewer than 100 dated reviews.
 ## Testing
 
 ```
-npm test    180 unit tests
-npm run e2e  28 end-to-end checks in a real browser
+npm test    197 unit tests
+npm run e2e  32 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:
@@ -125,6 +147,10 @@ Some of the load-bearing ones:
   divergence.
 - **CSV and backup round-trips**, including quoted commas, embedded
   newlines and doubled quotes.
+- **A schema migration test** that builds a v1 database by hand, opens it
+  with the current code, and checks the data survived and the new indexes
+  and stores are there. This is the one path that can silently destroy
+  someone's review history.
 
 ## Debug pages
 

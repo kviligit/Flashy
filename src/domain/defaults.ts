@@ -66,6 +66,7 @@ export function makeMeta(now = Date.now()): Meta {
     id: 'meta',
     schemaVersion: SCHEMA_VERSION,
     dayCutoffHour: 4,
+    deviceId: newId(),
     created: now,
     modified: now,
   };

@@ -4,9 +4,13 @@
  */
 
 import { defaultNoteTypes, makeDeck, makeDeckConfig, makeMeta } from '../domain/defaults.js';
+import { newId } from '../domain/id.js';
+import { SCHEMA_VERSION } from '../domain/types.js';
 import type { Db } from './types.js';
 import { IdbDb, idbAvailable } from './indexeddb.js';
 import { MemoryDb } from './memory.js';
+import { requestPersistence, type StorageStatus } from './persistence.js';
+import { withChangeTracking } from './tracking.js';
 
 export interface OpenResult {
   db: Db;
@@ -14,6 +18,11 @@ export interface OpenResult {
   persistent: boolean;
   /** Why persistence was unavailable, when it was. */
   reason?: string;
+  /**
+   * Whether the browser promised not to evict the collection under storage
+   * pressure. Absent when the database is only in memory anyway.
+   */
+  storage?: StorageStatus;
 }
 
 export async function openCollection(name?: string): Promise<OpenResult> {
@@ -26,7 +35,10 @@ export async function openCollection(name?: string): Promise<OpenResult> {
   }
   try {
     const db = await IdbDb.open(name);
-    return { db, persistent: true };
+    // Ask for durable storage before handing the database out, so a phone
+    // low on space cannot quietly evict months of review history.
+    const storage = await requestPersistence();
+    return { db: withChangeTracking(db), persistent: true, storage };
   } catch (error) {
     return {
       db: new MemoryDb(),
@@ -43,7 +55,19 @@ export async function openCollection(name?: string): Promise<OpenResult> {
 export async function seedIfEmpty(db: Db, now = Date.now()): Promise<void> {
   const existing = await db.noteTypes.count();
   if (existing > 0) {
-    if ((await db.meta.get('meta')) === null) await db.meta.put(makeMeta(now));
+    // Backfill anything a collection created by an older version lacks,
+    // rather than rewriting it wholesale.
+    const meta = await db.meta.get('meta');
+    if (meta === null) {
+      await db.meta.put(makeMeta(now));
+    } else if (!meta.deviceId || meta.schemaVersion !== SCHEMA_VERSION) {
+      await db.meta.put({
+        ...meta,
+        deviceId: meta.deviceId || newId(),
+        schemaVersion: SCHEMA_VERSION,
+        modified: now,
+      });
+    }
     return;
   }
 

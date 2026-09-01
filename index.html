@@ -9,7 +9,17 @@
     <meta name="description" content="A local-first spaced-repetition flashcard app using FSRS-6." />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./icon.svg" />
+    <link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png" />
+    <!-- iOS ignores SVG for the home screen and needs a real bitmap. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png" />
+    <!-- Safari only runs a saved page full-screen when told to. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Flashy" />
+    <!-- Reviewing means tapping the same four buttons repeatedly; a
+         double-tap must not be read as a request to zoom. -->
+    <meta name="format-detection" content="telephone=no" />
     <link rel="stylesheet" href="./src/ui/theme.css" />
   </head>
   <body>

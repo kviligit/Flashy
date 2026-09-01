@@ -444,6 +444,8 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   text-align: center;
 }
 
+.review-stage > .answer-bar { width: 100%; max-width: 34rem; }
+
 .review-content {
   font-size: 1.6rem;
   line-height: 1.55;
@@ -559,4 +561,66 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* --- Touch and small screens -------------------------------------- */
+
+/*
+ * Anything driven by a finger rather than a cursor gets a 44px target and
+ * loses its hover-only affordances — on a touch screen "appears on hover"
+ * means "never appears".
+ */
+@media (hover: none), (pointer: coarse) {
+  button { min-height: 44px; }
+  .deck-actions { opacity: 1; }
+  .deck-actions button { min-height: 38px; padding: 6px 10px; }
+  .twisty { min-width: 40px; }
+  input, select, textarea {
+    /* Anything under 16px makes iOS Safari zoom the page on focus. */
+    font-size: 16px;
+  }
+  .answer-bar button { min-height: 60px; }
+}
+
+@media (max-width: 640px) {
+  :root { --pad: 12px; --gap: 10px; }
+
+  main { padding: 16px var(--pad) 80px; }
+
+  /* Five nav items do not fit beside the brand on a phone, and letting
+     them run off the edge hides whichever comes last. Wrap them onto
+     their own row instead. */
+  .topbar { padding: 8px 10px; gap: 6px; flex-wrap: wrap; }
+  .topbar .brand { font-size: 0.95rem; margin-right: 0; }
+  .topbar nav { flex: 1 1 100%; gap: 2px; justify-content: space-between; }
+  .topbar nav a { padding: 6px 6px; font-size: 0.82rem; white-space: nowrap; }
+
+  h1 { font-size: 1.25rem; }
+
+  /* Deck actions would push the counts off-screen; the deck name still
+     opens the deck, and the actions live under a wrapped second line. */
+  .deck-row { flex-wrap: wrap; row-gap: 6px; }
+  .deck-row .name { flex: 1 1 60%; }
+  .deck-actions { flex: 1 1 100%; justify-content: flex-end; }
+
+  .review-content { font-size: 1.3rem; }
+  .review-stage { padding: 20px 4px; }
+  /* The stage centres its children, which would otherwise shrink the
+     answer bar to the width of its four labels. */
+  .answer-bar { gap: 6px; width: 100%; }
+  .answer-bar button { min-width: 0; flex: 1 1 0; padding: 10px 4px; }
+  .answer-bar button .key { display: none; }
+  .review-footer button { flex: 1 1 auto; }
+
+  .stat-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .stat-tile .value { font-size: 1.4rem; }
+
+  .modal { max-height: 92vh; }
+  table.browse td.q { max-width: 150px; }
+}
+
+/* Keep the answer buttons clear of a phone's home indicator. */
+@supports (padding: env(safe-area-inset-bottom)) {
+  main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .topbar { padding-left: max(var(--pad), env(safe-area-inset-left)); }
 }

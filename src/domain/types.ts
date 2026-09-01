@@ -224,8 +224,37 @@ export interface Meta extends Entity {
   schemaVersion: number;
   /** Hour (0-23, local time) at which a new study day begins. Anki uses 4. */
   dayCutoffHour: number;
+  /**
+   * Stable identifier for this installation.
+   *
+   * Nothing uses it yet. It exists because any future sync has to be able
+   * to say "this change came from that device", and minting it now means
+   * every record written from here on can be attributed later.
+   */
+  deviceId: string;
   created: number;
   modified: number;
 }
 
-export const SCHEMA_VERSION = 1;
+/**
+ * A record of something having been deleted — a tombstone.
+ *
+ * Deleting a row outright is fine for a single device and impossible to
+ * synchronise: a peer cannot tell "you deleted this" apart from "you have
+ * never seen this", so deletions silently resurrect. Tombstones are the one
+ * piece of sync groundwork that genuinely cannot be added later, because
+ * deletions that happened before they existed leave nothing behind to
+ * recover.
+ *
+ * They are written automatically by the storage layer. Nothing else needs
+ * to know they exist.
+ */
+export interface Deletion extends Entity {
+  /** `"<store>:<recordId>"`, so a record can only be tombstoned once. */
+  id: string;
+  store: string;
+  recordId: string;
+  deletedAt: number;
+}
+
+export const SCHEMA_VERSION = 2;

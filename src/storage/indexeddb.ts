@@ -18,7 +18,7 @@ import {
 } from './types.js';
 
 export const DB_NAME = 'flashy';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 function toKeyRange(range: Range): IDBKeyRange | null {
   const { lower, upper, lowerOpen = false, upperOpen = false } = range;
@@ -155,14 +155,35 @@ class IdbStore<T extends Entity> implements Store<T> {
   }
 }
 
-function upgrade(db: IDBDatabase, oldVersion: number): void {
-  if (oldVersion < 1) {
-    for (const name of STORE_NAMES) {
-      const store = db.createObjectStore(name, { keyPath: 'id' });
-      for (const index of INDEXES[name]) store.createIndex(index, index, { unique: false });
+function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null): void {
+  // Each version adds only what is missing, so an existing collection is
+  // upgraded in place rather than rebuilt. Never rename or drop a store
+  // here; add the new one and migrate into it.
+  const ensureStore = (name: StoreName): void => {
+    if (db.objectStoreNames.contains(name)) return;
+    const store = db.createObjectStore(name, { keyPath: 'id' });
+    for (const index of INDEXES[name]) store.createIndex(index, index, { unique: false });
+  };
+
+  /** Add any index declared for a store that the store does not yet have. */
+  const ensureIndexes = (name: StoreName): void => {
+    if (!tx || !db.objectStoreNames.contains(name)) return;
+    const store = tx.objectStore(name);
+    for (const index of INDEXES[name]) {
+      if (!store.indexNames.contains(index)) store.createIndex(index, index, { unique: false });
     }
+  };
+
+  if (oldVersion < 1) {
+    for (const name of STORE_NAMES) ensureStore(name);
   }
-  // Future versions: `if (oldVersion < 2) { ... }`
+
+  if (oldVersion < 2) {
+    // Tombstones, so deletions can be replayed onto another device, and the
+    // `modified` indexes the change feed scans.
+    ensureStore('deletions');
+    for (const name of STORE_NAMES) ensureIndexes(name);
+  }
 }
 
 export class IdbDb implements Db {
@@ -173,6 +194,7 @@ export class IdbDb implements Db {
   readonly cards: Db['cards'];
   readonly reviewLogs: Db['reviewLogs'];
   readonly meta: Db['meta'];
+  readonly deletions: Db['deletions'];
 
   private constructor(private readonly raw: IDBDatabase) {
     this.decks = new IdbStore(raw, 'decks') as Db['decks'];
@@ -182,12 +204,13 @@ export class IdbDb implements Db {
     this.cards = new IdbStore(raw, 'cards') as Db['cards'];
     this.reviewLogs = new IdbStore(raw, 'reviewLogs') as Db['reviewLogs'];
     this.meta = new IdbStore(raw, 'meta') as Db['meta'];
+    this.deletions = new IdbStore(raw, 'deletions') as Db['deletions'];
   }
 
   static open(name = DB_NAME, version = DB_VERSION): Promise<IdbDb> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(name, version);
-      request.onupgradeneeded = (event) => upgrade(request.result, event.oldVersion);
+      request.onupgradeneeded = (event) => upgrade(request.result, event.oldVersion, request.transaction);
       request.onsuccess = () => resolve(new IdbDb(request.result));
       request.onerror = () => reject(request.error ?? new Error('could not open IndexedDB'));
       request.onblocked = () =>

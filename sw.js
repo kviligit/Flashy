@@ -17,7 +17,7 @@
  * Bump CACHE_VERSION to evict everything on the next activation.
  */
 
-const CACHE_VERSION = 'flashy-v2';
+const CACHE_VERSION = 'flashy-v3';
 
 const SHELL = [
   './',
@@ -26,6 +26,9 @@ const SHELL = [
   './dist/app/main.js',
   './manifest.webmanifest',
   './icon.svg',
+  './icon-180.png',
+  './icon-192.png',
+  './icon-512.png',
 ];
 
 self.addEventListener('install', (event) => {

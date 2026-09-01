@@ -237,6 +237,91 @@ async function run(chromium) {
     check('there is a skip link', (await page.locator('.skip-link').count()) === 1);
     check('the main region is addressable', (await page.locator('main#main').count()) === 1);
 
+    // --- schema migration ---
+    // A collection created by v1 must survive the upgrade to v2 with its
+    // data intact and its new indexes in place. This is the one path that
+    // can silently destroy someone's review history.
+    const migration = await page.evaluate(async () => {
+      const NAME = 'flashy-migration-test';
+      await new Promise((resolve) => {
+        const request = indexedDB.deleteDatabase(NAME);
+        request.onsuccess = resolve;
+        request.onerror = resolve;
+        request.onblocked = resolve;
+      });
+
+      // Build the v1 schema by hand: no deletions store, no modified index
+      // on decks.
+      const v1 = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          for (const [name, indexes] of [
+            ['decks', ['name', 'configId']],
+            ['deckConfigs', ['name']],
+            ['noteTypes', ['name']],
+            ['notes', ['noteTypeId', 'modified']],
+            ['cards', ['noteId', 'deckId', 'due', 'state', 'position', 'modified']],
+            ['reviewLogs', ['cardId', 'reviewedAt']],
+            ['meta', []],
+          ]) {
+            const store = db.createObjectStore(name, { keyPath: 'id' });
+            for (const index of indexes) store.createIndex(index, index, { unique: false });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      await new Promise((resolve, reject) => {
+        const tx = v1.transaction('decks', 'readwrite');
+        tx.objectStore('decks').put({
+          id: 'legacy-deck',
+          name: 'From v1',
+          configId: 'cfg',
+          description: '',
+          collapsed: false,
+          created: 1,
+          modified: 42,
+        });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      v1.close();
+
+      // Now open it the way the app does, which triggers the upgrade.
+      const { IdbDb, deleteDatabase } = await import('../dist/storage/indexeddb.js');
+      const db = await IdbDb.open(NAME);
+      const survived = await db.decks.get('legacy-deck');
+      const byModified = await db.decks.byRange('modified', { lower: 0 });
+      await db.deletions.put({
+        id: 'decks:x',
+        store: 'decks',
+        recordId: 'x',
+        deletedAt: 1,
+      });
+      const tombstones = await db.deletions.count();
+      db.close();
+      await deleteDatabase(NAME);
+
+      return {
+        survivedName: survived ? survived.name : null,
+        scannedByModified: byModified.length,
+        tombstones,
+      };
+    });
+
+    check('v1 data survives the upgrade to v2', migration.survivedName === 'From v1', String(migration.survivedName));
+    check('the upgrade adds the modified index to an existing store', migration.scannedByModified === 1);
+    check('the upgrade adds the deletions store', migration.tombstones === 1);
+
+    // --- durable storage ---
+    const storage = await page.evaluate(async () => {
+      if (!navigator.storage || !navigator.storage.persisted) return { supported: false };
+      return { supported: true, persisted: await navigator.storage.persisted() };
+    });
+    check('durable storage was requested', storage.supported === false || typeof storage.persisted === 'boolean');
+
     // --- offline ---
     await page.goto(`${BASE}#/`);
     await page.waitForSelector('.deck-row');

@@ -10,7 +10,7 @@
 import type { Card, Deck, Note } from '../domain/types.js';
 import { State } from '../fsrs/index.js';
 import { CardFlag } from '../domain/types.js';
-import type { Db } from './types.js';
+import { CONTENT_STORES, VERSION_FIELD, type Db } from './types.js';
 
 export interface CheckResult {
   name: string;
@@ -306,6 +306,40 @@ const CHECKS: Check[] = [
     },
   },
 ];
+
+CHECKS.push(
+  {
+    name: 'every content store can be range-scanned by its version field',
+    run: async (db) => {
+      // The change feed depends on this. The in-memory backend reads the
+      // field directly and would happily pretend the index exists, so this
+      // check only has teeth against IndexedDB — which is the point.
+      for (const store of CONTENT_STORES) {
+        const field = VERSION_FIELD[store];
+        const all = await db[store].byRange(field, {});
+        assertEqual(all.length, 0, `${store} scanned by "${field}" on an empty database`);
+        const counted = await db[store].countRange(field, { lower: 0 });
+        assertEqual(counted, 0, `${store} counted by "${field}"`);
+      }
+    },
+  },
+  {
+    name: 'the deletions store holds tombstones and scans by time',
+    run: async (db) => {
+      await db.deletions.putMany([
+        { id: 'decks:a', store: 'decks', recordId: 'a', deletedAt: 100 },
+        { id: 'notes:b', store: 'notes', recordId: 'b', deletedAt: 200 },
+      ]);
+      assertEqual(await db.deletions.count(), 2, 'both tombstones stored');
+
+      const recent = await db.deletions.byRange('deletedAt', { lower: 150 });
+      assertSameIds(recent, ['notes:b'], 'scanned by deletedAt');
+
+      const byStore = await db.deletions.byIndex('store', 'decks');
+      assertEqual(byStore.length, 1, 'scanned by store');
+    },
+  },
+);
 
 /** Run every check against a freshly-cleared database. */
 export async function runConformance(db: Db): Promise<CheckResult[]> {

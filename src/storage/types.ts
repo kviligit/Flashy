@@ -8,6 +8,7 @@ import type {
   Card,
   Deck,
   DeckConfig,
+  Deletion,
   Entity,
   Meta,
   Note,
@@ -67,6 +68,8 @@ export interface Db {
   readonly cards: Store<Card>;
   readonly reviewLogs: Store<ReviewLog>;
   readonly meta: Store<Meta>;
+  /** Tombstones. Written by the storage layer, not by callers. */
+  readonly deletions: Store<Deletion>;
   /** Wipe every store. */
   clear(): Promise<void>;
   close(): void;
@@ -74,13 +77,17 @@ export interface Db {
 
 /** Which fields are indexed, per store. Shared by both implementations. */
 export const INDEXES = {
-  decks: ['name', 'configId'],
-  deckConfigs: ['name'],
-  noteTypes: ['name'],
+  // `modified` is indexed on every content store because the change feed
+  // range-scans it; without the index that scan is a full table read on
+  // IndexedDB, and an outright error if the index is missing.
+  decks: ['name', 'configId', 'modified'],
+  deckConfigs: ['name', 'modified'],
+  noteTypes: ['name', 'modified'],
   notes: ['noteTypeId', 'modified'],
   cards: ['noteId', 'deckId', 'due', 'state', 'position', 'modified'],
   reviewLogs: ['cardId', 'reviewedAt'],
   meta: [],
+  deletions: ['store', 'deletedAt'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type StoreName = keyof typeof INDEXES;
@@ -107,3 +114,34 @@ export function compareKeys(a: Key, b: Key): number {
   const bs = String(b);
   return as < bs ? -1 : as > bs ? 1 : 0;
 }
+
+
+/**
+ * The field that carries each store's version, for change feeds.
+ *
+ * Everything is mutated in place and carries `modified`, except review
+ * logs, which are append-only and are versioned by when the answer
+ * happened. `deletions` is not listed: tombstones are read as deletions,
+ * never as upserts.
+ */
+export const VERSION_FIELD = {
+  decks: 'modified',
+  deckConfigs: 'modified',
+  noteTypes: 'modified',
+  notes: 'modified',
+  cards: 'modified',
+  reviewLogs: 'reviewedAt',
+  meta: 'modified',
+} as const satisfies Partial<Record<StoreName, string>>;
+
+/** The stores that hold user content — everything a sync would carry. */
+export const CONTENT_STORES = [
+  'decks',
+  'deckConfigs',
+  'noteTypes',
+  'notes',
+  'cards',
+  'reviewLogs',
+] as const satisfies readonly StoreName[];
+
+export type ContentStore = (typeof CONTENT_STORES)[number];
