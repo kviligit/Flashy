@@ -84,8 +84,29 @@ losing months of review history without warning. So the app asks for
 [durable storage](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist)
 on startup and reports the answer under **Settings → Storage**. Browsers
 decide differently — some grant it silently, some only once the app is
-installed to the home screen, some never — so the honest advice is to
-install it and keep the occasional backup.
+installed, some never.
+
+### On an iPhone, install it
+
+This is not a preference. Safari applies a cap to script-writable storage
+and clears it for sites you have not returned to for a while — and web apps
+launched from the Home Screen are **exempt**. Studying in a Safari tab means
+your review history can be wiped without warning; studying from the Home
+Screen means it is not.
+
+There is no install prompt API on iOS, so the app detects a Safari tab and
+explains the steps itself, once, dismissibly:
+
+1. Tap the Share button at the bottom of Safari.
+2. Scroll down and tap **Add to Home Screen**.
+3. Tap Add, then open Flashy from the new icon.
+
+Settings → Storage reports which situation you are in. Note that only
+Safari can do this on iOS — Chrome and Firefox there are WebKit under the
+hood but have no "Add to Home Screen".
+
+Even so: take a backup occasionally. Import & export writes a complete
+copy, review history included.
 
 ### Syncing between devices
 
@@ -128,8 +149,8 @@ to run on fewer than 100 dated reviews.
 ## Testing
 
 ```
-npm test    197 unit tests
-npm run e2e  32 end-to-end checks in a real browser
+npm test    203 unit tests
+npm run e2e  40 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:
@@ -151,6 +172,10 @@ Some of the load-bearing ones:
   with the current code, and checks the data survived and the new indexes
   and stores are there. This is the one path that can silently destroy
   someone's review history.
+- **iOS checks** in an emulated iPhone, covering both a Safari tab and an
+  installed app: the install advice appears in one and not the other, the
+  storage report matches, dismissal sticks, and the answer buttons stay
+  tappable.
 
 ## Debug pages
 

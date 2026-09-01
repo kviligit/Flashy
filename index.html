@@ -15,7 +15,11 @@
     <!-- Safari only runs a saved page full-screen when told to. -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- "black" keeps the app below the status bar. "black-translucent"
+         looks better but slides content under the notch, which needs
+         viewport-fit=cover and matching safe-area padding to be safe; the
+         predictable option wins until it can be checked on real hardware. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
     <meta name="apple-mobile-web-app-title" content="Flashy" />
     <!-- Reviewing means tapping the same four buttons repeatedly; a
          double-tap must not be read as a request to zoom. -->

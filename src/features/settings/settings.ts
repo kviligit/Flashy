@@ -9,6 +9,12 @@ import type { StorageStatus } from '../../storage/index.js';
 import { makeDeckConfig, makeMeta } from '../../domain/defaults.js';
 import { cloneNoteType, deleteNoteType, noteTypeUsage } from '../../collection/notetypes.js';
 import { estimate, formatBytes, requestPersistence } from '../../storage/index.js';
+import {
+  currentPlatform,
+  installInstructions,
+  storageOutlook,
+  StorageOutlook,
+} from '../../ui/platform.js';
 
 export function settingsPage(ctx: AppContext): HTMLElement {
   const root = el('section', {});
@@ -214,21 +220,50 @@ function storageCard(
       ? 'size unknown'
       : `${formatBytes(used.usage)} used${used.quota ? ` of ${formatBytes(used.quota)} available` : ''}`;
 
+  const platform = currentPlatform();
+  const outlook = storageOutlook(platform);
+  const steps = installInstructions(platform);
+
   let state: string;
+  let detail: string | null = null;
   let colour: string;
+  let atRisk = false;
+
   if (!ctx.persistent) {
     state = 'Not saved at all';
+    detail =
+      ctx.storageWarning ??
+      'This browser would not open a database, so the collection lasts only until you close the tab.';
     colour = 'var(--danger)';
+    atRisk = true;
+  } else if (outlook === StorageOutlook.IosInstalled) {
+    // On iOS, being launched from the Home Screen is what protects the
+    // data — not the durable-storage API, which Safari does not treat as
+    // the deciding factor.
+    state = 'Saved on this device, and protected because Flashy is installed';
+    colour = 'var(--good)';
+  } else if (outlook === StorageOutlook.IosBrowser) {
+    state = 'At risk — Safari clears website data for sites you have not opened in a while';
+    detail =
+      'Add Flashy to your Home Screen and open it from there. Home Screen apps are exempt from that clear-out; a Safari tab is not.';
+    colour = 'var(--danger)';
+    atRisk = true;
   } else if (storage.persisted) {
     state = 'Saved on this device, protected from eviction';
     colour = 'var(--good)';
   } else if (!storage.supported) {
     state = 'Saved on this device; this browser cannot promise to keep it';
     colour = 'var(--hard)';
+    atRisk = true;
   } else {
     state = 'Saved on this device, but the browser may evict it if space runs low';
+    detail = 'Installing the app usually persuades the browser to keep it.';
     colour = 'var(--hard)';
+    atRisk = true;
   }
+
+  const canAskAgain =
+    outlook === StorageOutlook.Other && ctx.persistent && storage.supported && !storage.persisted;
 
   return el(
     'div.card.col',
@@ -239,33 +274,36 @@ function storageCard(
       text: state,
       style: { color: colour, margin: '0' },
     }),
+    detail ? el('p.faint', { text: detail, style: { margin: '0' } }) : null,
     el('p.faint', { text: `${size}. Nothing is ever uploaded.`, style: { margin: '0' } }),
-    !ctx.persistent
-      ? el('p.faint', {
-          text: ctx.storageWarning ?? 'This browser would not open a database, so the collection lasts only until you close the tab.',
-        })
+    steps
+      ? el(
+          'ol',
+          { style: { margin: '4px 0 0', paddingLeft: '20px', color: 'var(--text-dim)', fontSize: '0.9rem' } },
+          steps.map((step) => el('li', { text: step })),
+        )
       : null,
     el(
       'div.row',
       {},
-      storage.persisted || !storage.supported
-        ? null
-        : button(
+      canAskAgain
+        ? button(
             'Ask again for durable storage',
             () => {
               void requestPersistence().then((result) => {
                 toast(
                   result.persisted
                     ? 'Granted — the collection is protected now.'
-                    : 'The browser declined. Installing the app to your home screen usually persuades it.',
+                    : 'The browser declined. Installing the app usually persuades it.',
                   result.persisted ? 'success' : 'info',
                 );
                 refresh();
               });
             },
             {},
-          ),
-      button('Back up now', () => navigate('/manage'), { class: storage.persisted ? '' : 'primary' }),
+          )
+        : null,
+      button('Back up now', () => navigate('/manage'), { class: atRisk ? 'primary' : '' }),
     ),
   );
 }

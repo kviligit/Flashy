@@ -75,7 +75,8 @@ function check(name, condition, detail = '') {
   }
 }
 
-async function run(chromium) {
+async function run(playwright) {
+  const { chromium, devices } = playwright;
   const browser = await chromium.launch();
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
@@ -346,6 +347,73 @@ async function run(chromium) {
     }
 
     check('no uncaught errors anywhere', errors.length === 0, errors.slice(0, 3).join(' | '));
+
+    // --- iOS ---
+    // Safari clears script-writable storage for sites the user has not
+    // returned to, and exempts Home Screen apps. There is no API for this,
+    // so the app has to tell the user — and must not nag anyone else.
+    const iosErrors = [];
+
+    const iosTab = await browser.newContext({ ...devices['iPhone 13'] });
+    const tabPage = await iosTab.newPage();
+    tabPage.on('pageerror', (error) => iosErrors.push(String(error)));
+    await tabPage.goto(`${BASE}#/`);
+    await tabPage.waitForSelector('.deck-row');
+    check('an iOS browser tab is told to install', (await tabPage.locator('[data-hint="install"]').count()) === 1);
+
+    await tabPage.goto(`${BASE}#/settings`);
+    await tabPage.waitForSelector('[data-card="storage"]');
+    const tabState = await tabPage.locator('[data-role="storage-state"]').innerText();
+    check('an iOS tab reports its storage as at risk', /at risk/i.test(tabState), tabState);
+
+    await tabPage.goto(`${BASE}#/`);
+    await tabPage.waitForSelector('[data-hint="install"]');
+    await tabPage.click('[data-action="dismiss-install-hint"]');
+    await tabPage.waitForTimeout(200);
+    await tabPage.reload();
+    await tabPage.waitForSelector('.deck-row');
+    check('dismissing the install hint sticks', (await tabPage.locator('[data-hint="install"]').count()) === 0);
+    await iosTab.close();
+
+    const iosApp = await browser.newContext({ ...devices['iPhone 13'] });
+    await iosApp.addInitScript(() => {
+      Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+    });
+    const appPage = await iosApp.newPage();
+    appPage.on('pageerror', (error) => iosErrors.push(String(error)));
+    await appPage.goto(`${BASE}#/`);
+    await appPage.waitForSelector('.deck-row');
+    check('an installed iOS app is not nagged', (await appPage.locator('[data-hint="install"]').count()) === 0);
+
+    await appPage.goto(`${BASE}#/settings`);
+    await appPage.waitForSelector('[data-card="storage"]');
+    const appState = await appPage.locator('[data-role="storage-state"]').innerText();
+    check('an installed iOS app reports its storage as protected', /protected/i.test(appState), appState);
+
+    // Touch targets have to survive the narrower iPhone viewport too.
+    await appPage.goto(`${BASE}#/add`);
+    await appPage.waitForSelector('textarea[data-field]');
+    await appPage.fill('textarea[data-field="Front"]', 'ios');
+    await appPage.fill('textarea[data-field="Back"]', 'test');
+    await appPage.click('button:has-text("Add note")');
+    await appPage.waitForTimeout(200);
+    await appPage.goto(`${BASE}#/`);
+    await appPage.waitForSelector('.deck-row');
+    await appPage.locator('.deck-row .name').first().click();
+    await appPage.waitForSelector('.review-content');
+    await appPage.locator('[data-action="show-answer"]').click();
+    await appPage.waitForSelector('[data-rating]');
+    const sizes = await appPage
+      .locator('[data-rating]')
+      .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+    check('answer buttons stay tappable on an iPhone', sizes.every((h) => h >= 44), sizes.join(','));
+    const noOverflow = await appPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth + 1,
+    );
+    check('nothing overflows the iPhone viewport', noOverflow);
+    await iosApp.close();
+
+    check('no uncaught errors on iOS', iosErrors.length === 0, iosErrors.slice(0, 3).join(' | '));
   } finally {
     await browser.close();
   }
@@ -362,7 +430,7 @@ const server = startServer();
 try {
   await waitForServer();
   console.log(`Running end-to-end suite against ${BASE}\n`);
-  await run(playwright.chromium);
+  await run(playwright);
 } finally {
   server.kill();
 }

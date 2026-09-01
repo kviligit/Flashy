@@ -20,6 +20,7 @@ import {
 import { makeDeck } from '../../domain/defaults.js';
 import type { Deck } from '../../domain/types.js';
 import type { DeckCounts } from '../../scheduler/index.js';
+import { installHint } from './install-hint.js';
 
 export function deckList(ctx: AppContext): HTMLElement {
   const root = el('section', {});
@@ -59,6 +60,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
 
   render(
     root,
+    installHint(refresh),
     ctx.persistent
       ? null
       : el('div.banner', {

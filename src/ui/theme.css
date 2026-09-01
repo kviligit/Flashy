@@ -65,6 +65,14 @@ html, body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* Stop iOS inflating text when the phone is turned sideways. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* An installed app that rubber-bands at the edges reads as a web page. */
+  overscroll-behavior-y: none;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -624,3 +632,19 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   main { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
   .topbar { padding-left: max(var(--pad), env(safe-area-inset-left)); }
 }
+
+
+/* --- Install prompt ------------------------------------------------ */
+
+.install-hint {
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: var(--pad);
+  margin-bottom: var(--gap);
+}
+.install-hint h3 { font-size: 0.95rem; margin-bottom: 6px; }
+.install-hint ol { margin: 0 0 10px; padding-left: 20px; color: var(--text-dim); font-size: 0.9rem; }
+.install-hint li { margin-bottom: 3px; }
+.install-hint .why { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; }
