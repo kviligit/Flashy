@@ -1,9 +1,29 @@
-# Notes towards syncing
+# Syncing
 
-**Nothing here is implemented.** There is no sync engine, no transport and
-no merge policy. This describes the seam that exists so one can be added
-without disturbing the rest of the app, and records the decisions that
-would otherwise have to be unpicked later.
+**Status: the engine and the protocol layer are built and tested; the relay
+client is not.** Two devices can already synchronise completely over the
+loopback transport. What is missing is the part that puts bytes on a wire.
+
+| Piece | State |
+|---|---|
+| Tombstones and change feed | Done (`src/storage/`) |
+| Merge, replay, watermarks | Done (`src/sync/`) |
+| Loopback transport | Done — two devices converge in tests |
+| BIP-340 Schnorr signatures | Done, matches all 19 official vectors |
+| NIP-44 v2 encryption | Done, matches all official vectors |
+| NIP-01 events | Done |
+| Relay client (WebSocket) | **Not built** |
+| Nostr transport | **Not built** |
+| Key management and UI | **Not built** |
+
+Nothing in the app imports any of it yet: sync is inert until there is a
+transport and a way to configure it.
+
+One thing cannot be done from the development environment this was built
+in: **no relay is reachable from it**, so none of the nostr code has ever
+spoken to a real relay. The cryptography is verified against the
+specifications' own vectors, which is strong evidence, but interoperability
+with actual relay software is unproven.
 
 ## Why any of this exists now
 
@@ -66,18 +86,40 @@ would happily pretend they do.
 reads it yet. It exists so that changes written from today onward can be
 attributed to an origin once there is something to attribute them to.
 
-## What is not in place, and what it would take
+## The merge policy, as built
 
-### Merge policy
+Implemented in `src/sync/merge.ts`:
 
-There is none. The natural starting point is last-write-wins per record
-using the existing `modified` field, which is adequate for everything here
-except one case worth thinking about properly: **review logs are
-append-only and must never be merged by overwriting**. Two devices studying
-the same card produce two genuine logs; the correct result is both, in time
-order, with the card's scheduling state recomputed from the merged history.
-That is the one piece of real domain logic a sync engine needs, and
-`ReviewLog.snapshot` plus a replay through `src/fsrs/` is enough to do it.
+- **Review logs are append-only.** Two devices studying the same card
+  produce two genuine answers, and the truth is the union. A log is never
+  overwritten and never conflicts. After merging, the card's scheduling
+  state is recomputed by replaying the union through `src/fsrs/` —
+  `src/sync/replay.ts`. Replay runs with fuzz disabled so both devices
+  reach byte-identical state; with fuzz they would disagree forever.
+- **Media is content-addressed**, so identical ids mean identical bytes.
+- **Everything else is last-write-wins** on `modified`, with ties broken by
+  a canonical, key-order-independent serialisation. That tiebreak matters
+  more than it looks: an earlier version compared record *ids*, which are
+  identical for the same record, so each device kept its own copy and they
+  disagreed permanently.
+- **A tombstone wins only if the record has not changed since**, because an
+  edit after a delete is the later intention and resurrecting is the safer
+  error.
+
+Upserts are applied before deletions; the other order lets a stale upsert
+resurrect something the same change set deletes.
+
+### A caveat on clocks
+
+Last-write-wins compares wall-clock timestamps from different devices. A
+device with a badly wrong clock will win or lose every conflict. There is no
+mitigation in place beyond the deterministic tiebreak, which at least
+guarantees the two devices agree on *which* version won.
+
+The push watermark is the local clock, so a record written with a timestamp
+older than the last push is never offered to a peer. Real code always uses
+`Date.now()` and is naturally monotonic; anything that sets timestamps by
+hand needs to keep that in mind.
 
 ### Transport
 
@@ -90,10 +132,22 @@ the shape. A transport needs to answer two questions:
 That is a two-method interface. Anything satisfying it works: a file on a
 USB stick, a WebDAV folder, a server, a relay.
 
-### If the transport is nostr
+### The nostr layer, as built
 
-Sketching this only to check the seam is the right shape, not to commit to
-it:
+`src/nostr/` holds the protocol, and knows nothing about flashcards:
+
+- `secp256k1.ts` — BIP-340 Schnorr, hand-written because this project
+  cannot install packages and no browser API provides it. Verified against
+  all 19 official vectors. **It is not constant time**, and that is
+  documented at the top of the file rather than buried: bigint arithmetic
+  leaks timing information about the secret key. The exported surface
+  mirrors `@noble/curves` so it can be swapped out wholesale.
+- `chacha20.ts` — RFC 8439, needed by NIP-44.
+- `nip44.ts` — v2 encryption, verified against the official vectors.
+- `event.ts` — NIP-01 events, with ids re-derived on verification rather
+  than trusted.
+
+### What a nostr transport still needs
 
 - The user's key pair is the identity; `deviceId` distinguishes their
   devices from each other.
