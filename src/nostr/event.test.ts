@@ -54,7 +54,7 @@ test('a signed event verifies', async () => {
 
   assert.equal(event.id.length, 64);
   assert.equal(event.sig.length, 128);
-  assert.deepEqual(await verifyEvent(event), { ok: true });
+  assert.deepEqual(await verifyEvent(event), { ok: true, event });
 });
 
 test('signing under someone else’s key is refused up front', async () => {

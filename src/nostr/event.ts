@@ -81,10 +81,14 @@ export type VerifyFailure =
   | 'bad-id'
   | 'bad-signature';
 
-export interface VerifyResult {
-  ok: boolean;
-  reason?: VerifyFailure;
-}
+/**
+ * A discriminated union rather than a boolean plus a nullable event: a
+ * caller that has checked `ok` then has the verified event in hand, and a
+ * caller that has not cannot reach it at all.
+ */
+export type VerifyResult =
+  | { ok: true; event: NostrEvent }
+  | { ok: false; reason: VerifyFailure };
 
 /**
  * Check an event completely: shape, id and signature.
@@ -104,7 +108,7 @@ export async function verifyEvent(event: unknown): Promise<VerifyResult> {
     hexToBytes(event.id),
     hexToBytes(event.pubkey),
   );
-  return valid ? { ok: true } : { ok: false, reason: 'bad-signature' };
+  return valid ? { ok: true, event } : { ok: false, reason: 'bad-signature' };
 }
 
 const HEX32 = /^[0-9a-f]{64}$/;
