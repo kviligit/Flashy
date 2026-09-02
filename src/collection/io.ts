@@ -30,6 +30,19 @@ export const EXPORT_FORMAT = 'flashy-collection';
 export const EXPORT_VERSION = 2;
 
 /**
+ * Limits on what a single backup may contain.
+ *
+ * Generous enough that no real collection meets them — a decade of heavy
+ * daily study is far below half a million records — and finite enough that
+ * a file crafted to exhaust memory is refused in milliseconds instead of
+ * locking up the tab for minutes first. The message says which limit was
+ * hit, because someone with a genuinely enormous collection needs to know
+ * to split it rather than to conclude the app is broken.
+ */
+export const MAX_IMPORT_RECORDS = 500_000;
+export const MAX_IMPORT_MEDIA_BYTES = 512 * 1024 * 1024;
+
+/**
  * A media file inside a backup.
  *
  * JSON cannot carry an ArrayBuffer, so the bytes travel base64-encoded.
@@ -358,6 +371,31 @@ export function validateExport(data: unknown): CollectionExport {
     if (typeof file.data !== 'string') {
       throw new Error(`Backup media file "${file.filename ?? file.id}" has no content.`);
     }
+  }
+
+  const records =
+    parsed.decks.length +
+    parsed.deckConfigs.length +
+    parsed.noteTypes.length +
+    parsed.notes.length +
+    parsed.cards.length +
+    parsed.reviewLogs.length +
+    parsed.media.length;
+  if (records > MAX_IMPORT_RECORDS) {
+    throw new Error(
+      `That backup holds ${records.toLocaleString()} records, more than this app will import at once ` +
+        `(${MAX_IMPORT_RECORDS.toLocaleString()}). Split it into smaller exports.`,
+    );
+  }
+
+  // Base64 carries three bytes in every four characters, so the decoded
+  // size is known without decoding anything.
+  const mediaBytes = parsed.media.reduce((sum, file) => sum + Math.ceil(file.data.length * 0.75), 0);
+  if (mediaBytes > MAX_IMPORT_MEDIA_BYTES) {
+    throw new Error(
+      `That backup holds about ${Math.round(mediaBytes / 1024 / 1024)} MB of images and sounds, ` +
+        `more than this app will import at once (${Math.round(MAX_IMPORT_MEDIA_BYTES / 1024 / 1024)} MB).`,
+    );
   }
 
   return parsed;

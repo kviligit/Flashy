@@ -5,6 +5,7 @@ import { MemoryDb, seedIfEmpty } from '../storage/index.js';
 import { parseCsv, sniffDelimiter, toCsv } from './csv.js';
 import {
   EXPORT_FORMAT,
+  MAX_IMPORT_RECORDS,
   exportCollection,
   exportCsv,
   importCollection,
@@ -449,4 +450,39 @@ test('a lying size is replaced by the real one', async () => {
     'replace',
   );
   assert.equal((await db.media.get('a'))?.size, 4, 'the bytes decide, not the claim');
+});
+
+test('an absurdly large backup is refused before any work is done', () => {
+  const many = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}` }));
+  assert.doesNotThrow(() =>
+    validateExport({ format: EXPORT_FORMAT, version: 2, noteTypes: [{ id: 'nt' }], notes: many }),
+  );
+
+  // A file claiming half a million cards is either a mistake or an attempt
+  // to lock the tab up; either way, refusing it in milliseconds beats
+  // discovering it after several minutes.
+  const tooMany = { length: MAX_IMPORT_RECORDS + 1 };
+  const huge = Array.from(tooMany, (_, i) => ({ id: `c${i}` }));
+  assert.throws(
+    () => validateExport({ format: EXPORT_FORMAT, version: 2, cards: huge }),
+    /more than this app will import/,
+  );
+});
+
+test('a backup claiming more media than we will hold is refused', () => {
+  // Half a gigabyte of base64, described rather than allocated.
+  const oversized = 'A'.repeat(1000);
+  const files = Array.from({ length: 800_000 }, (_, i) => ({
+    id: `m${i}`,
+    filename: 'x.png',
+    mime: 'image/png',
+    size: 750,
+    data: oversized,
+    created: 1,
+    modified: 1,
+  }));
+  assert.throws(
+    () => validateExport({ format: EXPORT_FORMAT, version: 2, media: files }),
+    /more than this app will import/,
+  );
 });

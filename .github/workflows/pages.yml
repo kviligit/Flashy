@@ -31,8 +31,15 @@ jobs:
         with:
           node-version: '22'
 
+      # There is no lockfile, because the environment this project is
+      # developed in cannot reach the npm registry to generate one. The
+      # compiler version is therefore pinned exactly rather than by range,
+      # so a compromised or merely broken patch release cannot be pulled
+      # into a build without someone changing this file. Replace this with
+      # `npm ci` and a committed package-lock.json as soon as a lockfile
+      # can be produced.
       - name: Install the compiler
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --no-save typescript@6.0.2
 
       - name: Type-check and build
         run: npx tsc
