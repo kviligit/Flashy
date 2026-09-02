@@ -14,7 +14,7 @@
     "check": "npm test && npm run e2e"
   },
   "devDependencies": {
-    "typescript": "~6.0.2"
+    "typescript": "6.0.2"
   },
   "engines": {
     "node": ">=22"
