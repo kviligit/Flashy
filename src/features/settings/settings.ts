@@ -9,6 +9,7 @@ import type { StorageStatus } from '../../storage/index.js';
 import { makeDeckConfig, makeMeta } from '../../domain/defaults.js';
 import { cloneNoteType, deleteNoteType, noteTypeUsage } from '../../collection/notetypes.js';
 import { estimate, formatBytes, requestPersistence } from '../../storage/index.js';
+import { offlineSupported, resetOfflineCopy } from '../../ui/offline.js';
 import {
   currentPlatform,
   installInstructions,
@@ -60,6 +61,8 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
     el('h1', { text: 'Settings' }),
 
     storageCard(ctx, storage, used, refresh),
+
+    offlineCard(),
 
     // Sync is off by default and lives on its own page: it is the one
     // feature here that sends anything anywhere, and it deserves the room
@@ -319,4 +322,58 @@ function storageCard(
       button('Back up now', () => navigate('/manage'), { class: atRisk ? 'primary' : '' }),
     ),
   );
+}
+
+
+/**
+ * A way back from a broken or tampered-with offline copy.
+ *
+ * The app caches its own files so it works with no network. That cache is
+ * writable by anything that can run script here, and on an installed app
+ * there is no address bar and no "clear site data" — so without this, the
+ * only recovery is deleting the app, which on iOS deletes the collection
+ * too. The cards are in IndexedDB and are not touched by any of this.
+ */
+function offlineCard(): HTMLElement | null {
+  if (!offlineSupported()) return null;
+
+  return el(
+    'div.card.col',
+    { 'data-card': 'offline' },
+    el('h3', { text: 'Offline copy' }),
+    el('p.faint', {
+      text: 'Flashy keeps a copy of its own files on this device so it opens without a network. Your cards are stored separately and are not affected by this button.',
+    }),
+    el(
+      'div.row',
+      {},
+      button('Reset the offline copy', () => void resetOffline(), {
+        'data-action': 'reset-offline',
+      }),
+      el('div.spacer', {}),
+    ),
+    el('p.faint', {
+      text: 'Use this if the app is behaving strangely after an update, or if you have any reason to think its files were tampered with.',
+    }),
+  );
+}
+
+async function resetOffline(): Promise<void> {
+  const ok = await confirmModal(
+    'Reset the offline copy?',
+    el(
+      'div.col',
+      {},
+      el('p', {
+        text: 'Flashy will re-download its own files and reload. Your cards, decks and review history stay exactly as they are.',
+      }),
+      el('p.faint', { text: 'You will need a network connection for the reload to work.' }),
+    ),
+    'Reset it',
+  );
+  if (!ok) return;
+
+  await resetOfflineCopy();
+  toast('Offline copy cleared. Reloading…', 'success');
+  window.location.reload();
 }
