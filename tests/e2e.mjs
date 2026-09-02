@@ -546,6 +546,115 @@ async function run(playwright) {
     check('the upgrade adds the modified index to an existing store', migration.scannedByModified === 1);
     check('the upgrade adds the deletions store', migration.tombstones === 1);
 
+    // The upgrade a real user will actually run. Everyone on the published
+    // site is on version 4; sync adds version 5. v1 -> 5 exercises the
+    // whole chain but nobody is on v1, and a migration that works from the
+    // beginning and not from the last shipped version is the one that
+    // destroys collections.
+    const fromV4 = await page.evaluate(async () => {
+      const NAME = 'flashy-migration-v4';
+      await new Promise((resolve) => {
+        const request = indexedDB.deleteDatabase(NAME);
+        request.onsuccess = resolve;
+        request.onerror = resolve;
+        request.onblocked = resolve;
+      });
+
+      // Version 4 exactly as it ships today: every store except syncState,
+      // with the indexes v4 declares.
+      const v4 = await new Promise((resolve, reject) => {
+        const request = indexedDB.open(NAME, 4);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          for (const [name, indexes] of [
+            ['decks', ['name']],
+            ['deckConfigs', ['name']],
+            ['noteTypes', ['name']],
+            ['notes', ['noteTypeId', 'modified']],
+            ['cards', ['noteId', 'deckId', 'due', 'position', 'modified']],
+            ['reviewLogs', ['cardId', 'reviewedAt']],
+            ['media', ['modified']],
+            ['meta', ['modified']],
+            ['deletions', ['store', 'deletedAt']],
+          ]) {
+            const store = db.createObjectStore(name, { keyPath: 'id' });
+            for (const index of indexes) store.createIndex(index, index, { unique: false });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+
+      // A collection with something in every store that matters, so the
+      // check is "did the data survive", not "did the schema change".
+      await new Promise((resolve, reject) => {
+        const tx = v4.transaction(['decks', 'notes', 'cards', 'reviewLogs', 'media'], 'readwrite');
+        tx.objectStore('decks').put({
+          id: 'd1', name: 'Real deck', configId: 'cfg', description: '',
+          collapsed: false, created: 1, modified: 100,
+        });
+        tx.objectStore('notes').put({
+          id: 'n1', noteTypeId: 'nt', fields: { Front: 'kept?' }, tags: [],
+          created: 1, modified: 100,
+        });
+        tx.objectStore('cards').put({
+          id: 'c1', noteId: 'n1', deckId: 'd1', ord: 0, state: 2,
+          memory: { stability: 5, difficulty: 5 }, due: new Date().toISOString(),
+          lastReview: null, step: 0, reps: 3, lapses: 0, position: 0,
+          suspended: false, buriedUntil: null, flag: 0, created: 1, modified: 100,
+        });
+        tx.objectStore('reviewLogs').put({
+          id: 'l1', cardId: 'c1', reviewedAt: 50, rating: 3, stateBefore: 0,
+          stateAfter: 2, intervalDays: 1, lastIntervalDays: 0, elapsedDays: 0,
+          stability: 5, difficulty: 5, timeTakenMs: 1000, snapshot: null,
+          siblingsBuried: [],
+        });
+        tx.objectStore('media').put({
+          id: 'm1', filename: 'a.png', mime: 'image/png', size: 3,
+          data: new Uint8Array([1, 2, 3]).buffer, created: 1, modified: 100,
+        });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      v4.close();
+
+      const { IdbDb, deleteDatabase } = await import('../dist/storage/indexeddb.js');
+      const db = await IdbDb.open(NAME);
+
+      const note = await db.notes.get('n1');
+      const card = await db.cards.get('c1');
+      const media = await db.media.get('m1');
+      const logs = await db.reviewLogs.count();
+
+      // The store version 5 exists to add, used the way sync uses it.
+      await db.syncState.put({
+        id: 'nostr:abc', lastPulledAt: 1, lastPushedAt: 2, lastSyncedAt: 3, modified: 4,
+      });
+      const watermark = await db.syncState.get('nostr:abc');
+
+      // And the change feed still scans, which is what sync depends on.
+      const changed = await db.notes.byRange('modified', { lower: 0 });
+
+      db.close();
+      await deleteDatabase(NAME);
+
+      return {
+        note: note ? note.fields.Front : null,
+        cardReps: card ? card.reps : null,
+        mediaBytes: media && media.data ? new Uint8Array(media.data).length : null,
+        logs,
+        watermark: watermark ? watermark.lastPulledAt : null,
+        changed: changed.length,
+      };
+    });
+
+    check('a v4 collection survives the upgrade to v5', fromV4.note === 'kept?', String(fromV4.note));
+    check('its cards keep their scheduling state', fromV4.cardReps === 3, String(fromV4.cardReps));
+    check('its review history is intact', fromV4.logs === 1, String(fromV4.logs));
+    check('its media keeps its bytes', fromV4.mediaBytes === 3, String(fromV4.mediaBytes));
+    check('the upgrade adds the syncState store', fromV4.watermark === 1, String(fromV4.watermark));
+    check('and the change feed still scans after it', fromV4.changed === 1, String(fromV4.changed));
+
     // --- durable storage ---
     const storage = await page.evaluate(async () => {
       if (!navigator.storage || !navigator.storage.persisted) return { supported: false };
