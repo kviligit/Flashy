@@ -9,3 +9,20 @@ export { readSyncState, resetSyncState, syncWith } from './engine.js';
 export type { SyncOptions } from './engine.js';
 export { loopbackTransport } from './loopback.js';
 export type { LoopbackOptions } from './loopback.js';
+export {
+  APP_NAME,
+  APP_TAG,
+  DEVICE_TAG,
+  FLASHY_KIND,
+  LOOKBACK_SECONDS,
+  NostrTransport,
+} from './nostr-transport.js';
+export type { NostrTransportOptions, TransportProblem } from './nostr-transport.js';
+export {
+  chunkChangeSet,
+  decodeChangeSet,
+  MAX_CHUNK_BYTES,
+  MAX_PLAINTEXT_BYTES,
+  WIRE_VERSION,
+} from './wire.js';
+export type { ChunkResult, Oversized, WireChangeSet, WireUpsert } from './wire.js';

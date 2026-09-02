@@ -43,3 +43,6 @@ export {
   verifyEvent,
 } from './event.js';
 export type { NostrEvent, UnsignedEvent, VerifyResult } from './event.js';
+
+export { DEFAULT_MAX_EVENTS, DEFAULT_TIMEOUT_MS, matchesFilter, openRelay, Relay, RelayError } from './relay.js';
+export type { Filter, RelayOptions, RelaySocket, SocketFactory } from './relay.js';
