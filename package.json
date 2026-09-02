@@ -7,10 +7,10 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "tsc && node --test \"dist/**/*.test.js\"",
+    "test": "npm run clean && tsc && node --test \"dist/**/*.test.js\"",
     "dev": "tsc && python3 -m http.server 5173",
     "clean": "rm -rf dist",
-    "e2e": "tsc && node tests/e2e.mjs",
+    "e2e": "npm run clean && tsc && node tests/e2e.mjs",
     "check": "npm test && npm run e2e"
   },
   "devDependencies": {
