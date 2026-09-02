@@ -701,3 +701,18 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   background: var(--surface-3);
 }
 .media-row.unused { color: var(--text-faint); }
+
+/* --- Editor snippets ----------------------------------------------- */
+
+.snippet-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 2px;
+}
+.snippet-bar button {
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  border-color: var(--border-strong);
+}

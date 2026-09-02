@@ -240,6 +240,30 @@ async function run(playwright) {
     check('there is a skip link', (await page.locator('.skip-link').count()) === 1);
     check('the main region is addressable', (await page.locator('main#main').count()) === 1);
 
+    // --- editor snippets ---
+    await page.goto(`${BASE}#/add`);
+    await page.waitForSelector('[data-snippet="Definer:"]');
+    await page.click('[data-snippet="Definer:"]');
+    check(
+      'the Definer button starts the card',
+      (await page.inputValue('textarea[data-field="Front"]')) === 'Definer: ',
+    );
+    await page.keyboard.type('entropi');
+    await page.click('[data-snippet="Definer:"]');
+    check(
+      'pressing it again does not double the opening',
+      (await page.inputValue('textarea[data-field="Front"]')) === 'Definer: entropi',
+    );
+    await page.click('textarea[data-field="Back"]');
+    await page.keyboard.type('svar');
+    await page.click('[data-snippet="Definer:"]');
+    check(
+      'it acts on the field you were last in',
+      (await page.inputValue('textarea[data-field="Back"]')) === 'Definer: svar',
+    );
+    await page.fill('textarea[data-field="Front"]', '');
+    await page.fill('textarea[data-field="Back"]', '');
+
     // --- media ---
     // Attaching a file, seeing it decoded on a real card, and getting it
     // back after a restore. An image that survives everything except the

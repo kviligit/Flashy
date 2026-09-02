@@ -12,6 +12,7 @@ import { addNote, completeFields, parseTags, updateNote } from '../../collection
 import { addMedia } from '../../collection/media.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
+import { applyPrefix, SNIPPETS } from './snippets.js';
 import type { Deck, Note, NoteType } from '../../domain/types.js';
 
 export interface EditorOptions {
@@ -62,6 +63,17 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
   const media = new MediaResolver(ctx.db);
 
   const draw = (): void => {
+    /** Field name -> apply a prefix to that field's current text. */
+    const prefixers = new Map<string, (text: string) => void>();
+    /**
+     * Which field the snippet buttons act on.
+     *
+     * Read from a focus listener rather than `document.activeElement` at
+     * click time: pressing the button moves focus to the button itself, so
+     * by then the field the user was in is no longer the active element.
+     */
+    let lastFocusedField = noteType.fields[0]?.name;
+
     const inputs = noteType.fields.map((f) => {
       const control = textarea({
         value: fields[f.name] ?? '',
@@ -117,6 +129,21 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
           }
         }
       };
+
+      control.addEventListener('focus', () => {
+        lastFocusedField = f.name;
+      });
+
+      prefixers.set(f.name, (text: string) => {
+        const next = applyPrefix(control.value, text);
+        control.value = next;
+        fields[f.name] = next;
+        // Leave the cursor after the inserted opening, ready to type.
+        const caret = Math.min(text.length, next.length);
+        control.setSelectionRange(caret, caret);
+        control.focus();
+        drawPreview();
+      });
 
       picker.addEventListener('change', () => {
         void attach(picker.files).finally(() => {
@@ -306,6 +333,7 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
           'div.card.col',
           {},
           el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
+          snippetBar(() => lastFocusedField, prefixers),
           inputs,
           field('Tags', tagsInput),
           el('p.faint', {
@@ -340,4 +368,38 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
     media.dispose();
   });
   watcher.observe(document.body, { childList: true, subtree: true });
+}
+
+
+/**
+ * The stock-opening buttons.
+ *
+ * They act on the field the user was last in, which defaults to the first —
+ * the one someone means by "start the card with".
+ */
+function snippetBar(
+  targetField: () => string | undefined,
+  prefixers: Map<string, (text: string) => void>,
+): HTMLElement | null {
+  if (SNIPPETS.length === 0 || prefixers.size === 0) return null;
+
+  return el(
+    'div.snippet-bar',
+    {},
+    el('span.faint', { text: 'Start with' }),
+    SNIPPETS.map((snippet) =>
+      button(
+        snippet.label,
+        () => {
+          const target = targetField();
+          if (target) prefixers.get(target)?.(snippet.text);
+        },
+        {
+          class: 'ghost',
+          'data-snippet': snippet.label,
+          title: snippet.title ?? `Insert "${snippet.text}"`,
+        },
+      ),
+    ),
+  );
 }
