@@ -37,13 +37,18 @@
 > - **L1, L2, L3** — hex parsing, extension public keys, relay notices.
 > - **All nine untrue comments** corrected.
 >
+> - **M5 (no per-store record validation)** — `src/sync/validate.ts` now
+>   checks every record against its store's shape before the merge writes
+>   it. Known fields are type-checked; unknown ones are carried through, so
+>   a device running a newer version is not shut out of the fleet. The
+>   check is structural only: whether a `deckId` names a deck that exists
+>   is not knowable at that point, since the deck may arrive in a later
+>   chunk. Tested by round-tripping every record a real, lived-in
+>   collection produces through the validator, which is stronger evidence
+>   than any record written by hand for the purpose.
+>
 > **Not fixed, deliberately:**
 >
-> - **M5 (no per-store record validation)** — a peer can still write a card
->   with a nonsense `deckId`. It is a data-integrity problem, not an XSS
->   one: content still passes through `safe-html.ts`, and media MIME is
->   still clamped at the blob sink. A full per-store schema is worth
->   writing and is not a thing to bolt on unattended.
 > - **L4, L5** — the inbound message queue is bounded in practice by the
 >   new offered-event cap; the ChaCha20 counter cannot wrap below the
 >   65535-byte plaintext limit.

@@ -37,6 +37,7 @@ import type { Entity } from '../domain/types.js';
 import { hashContent } from '../domain/media.js';
 import { Rating, State } from '../fsrs/index.js';
 import { replayCards } from './replay.js';
+import { validateRecord } from './validate.js';
 import { emptyCounts, type MergeCounts } from './types.js';
 
 export interface MergeOptions {
@@ -120,6 +121,12 @@ function isAcceptable(store: ContentStore, record: Entity, version: number, now:
   if (!Number.isFinite(version) || version < 0) return false;
   if (version > now + MAX_FUTURE_VERSION_MS) return false;
   if (hasNonFiniteNumber(record)) return false;
+
+  // Every store's own shape. This is the check that was missing entirely:
+  // a peer could write a card whose deckId was an object and whose state
+  // was a string, and nothing complained until the damage surfaced
+  // somewhere else entirely, hours later.
+  if (validateRecord(store, record) !== null) return false;
 
   if (store === 'reviewLogs') {
     const log = record as unknown as Record<string, unknown>;
