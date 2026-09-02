@@ -24,10 +24,16 @@ export interface MergeCounts {
   skipped: number;
   /** Records where both sides had changed since they last agreed. */
   conflicts: number;
-  /** Review logs added. Append-only, so these never conflict. */
+  /**
+   * Review logs added. Append-only, so these never conflict — and a merge
+   * refuses to delete one, which is what makes that claim true against a
+   * hostile peer rather than merely true of honest ones.
+   */
   reviewLogs: number;
   /** Records removed by a tombstone. */
   deleted: number;
+  /** Records refused outright as malformed or impossible. */
+  rejected: number;
   /** Tombstones ignored because the record had been changed since. */
   deletionsRejected: number;
   /** Cards whose scheduling state was recomputed from merged history. */
@@ -50,6 +56,7 @@ export function emptyCounts(): MergeCounts {
     conflicts: 0,
     reviewLogs: 0,
     deleted: 0,
+    rejected: 0,
     deletionsRejected: 0,
     cardsReplayed: 0,
   };

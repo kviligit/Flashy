@@ -109,6 +109,34 @@ Implemented in `src/sync/merge.ts`:
 Upserts are applied before deletions; the other order lets a stale upsert
 resurrect something the same change set deletes.
 
+### A peer's content is untrusted, even when the peer is authenticated
+
+A signature says who sent something, not that what they sent is true. A
+compromised second device, or a relay that alters what it relays, produces
+exactly the same shape of data as an honest peer. A security audit
+demonstrated three attacks against an earlier version of the merge that
+took a peer at its word:
+
+- **A declared version won every conflict.** The comparison used the
+  `version` field of the *envelope* rather than re-reading it from the
+  record, so `Number.MAX_SAFE_INTEGER` overwrote anything, permanently. The
+  version is now re-derived from the record itself.
+- **"Append-only" review logs could be deleted.** A tombstone for a review
+  log was honoured like any other, erasing study that genuinely happened —
+  and the replay that followed silently recomputed the card's schedule from
+  the truncated history. A merge now refuses to delete a review log at all,
+  which is what makes the append-only claim true against a hostile peer
+  rather than merely true of honest ones. Local deletion still works: undo
+  goes through the store directly, not through a merge.
+- **Nonsense values reached the scheduler.** Ratings and elapsed days were
+  passed to replay uncast and unchecked, so `Infinity` or a rating of 99
+  could drive a card's memory anywhere. Both are range-checked on arrival,
+  along with every other number in the record.
+
+Records dated more than a day into the future are refused outright — enough
+slack for clocks that disagree, not enough for a record dated next century
+to win every conflict for the rest of the collection's life.
+
 ### A caveat on clocks
 
 Last-write-wins compares wall-clock timestamps from different devices. A
