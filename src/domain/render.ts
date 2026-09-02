@@ -86,22 +86,20 @@ export function escapeHtml(value: string): string {
 }
 
 /**
- * Remove the parts of user-authored HTML that could execute.
+ * Rendering produces UNTRUSTED HTML.
  *
- * Cards are the user's own content in a local app, so this is a guard
- * against a hostile shared deck rather than a full sanitiser: scripts,
- * embedded frames, event-handler attributes and javascript: URLs go.
+ * There is deliberately no sanitiser here. This module is pure and
+ * DOM-free, and sanitising HTML without a parser cannot be done safely — an
+ * earlier attempt used regexes and was bypassed by `<img src="x"/onerror=…>`,
+ * because browsers accept `/` as an attribute separator and a regex
+ * requiring whitespace does not.
+ *
+ * The security boundary is `setSafeHtml` in `src/ui/safe-html.ts`, which
+ * parses into an inert DOM and applies an allow-list. Everything that puts
+ * rendered card content on the page must go through it. Anything else —
+ * export, plain-text previews, blankness checks — is not an injection sink
+ * and does not need one.
  */
-export function sanitiseHtml(html: string): string {
-  return html
-    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-    .replace(/<\s*(script|style|iframe|object|embed|link|meta)\b[^>]*\/?>/gi, '')
-    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
-    .replace(/\son\w+\s*=\s*[^\s>]+/gi, '')
-    .replace(/(href|src)\s*=\s*"\s*javascript:[^"]*"/gi, '$1="#"')
-    .replace(/(href|src)\s*=\s*'\s*javascript:[^']*'/gi, "$1='#'");
-}
 
 /** Field names a template refers to, in any form. */
 export function fieldsReferenced(template: string): string[] {
@@ -116,9 +114,8 @@ export function fieldsReferenced(template: string): string[] {
 
 /** Render one side of one card. */
 export function renderTemplate(template: string, ctx: RenderContext): string {
-  let out = resolveSections(template, ctx);
-  out = resolveFields(out, ctx);
-  return sanitiseHtml(out);
+  const withSections = resolveSections(template, ctx);
+  return resolveFields(withSections, ctx);
 }
 
 /** `{{#Field}}` / `{{^Field}}` blocks, innermost first. */

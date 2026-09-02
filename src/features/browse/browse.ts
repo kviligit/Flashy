@@ -10,6 +10,7 @@ import type { AppContext } from '../../app/context.js';
 import { cardPreview, renderCard } from '../../domain/cards.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
+import { setSafeHtml } from '../../ui/safe-html.js';
 import { deleteNotes, setCardDeck } from '../../collection/notes.js';
 import { stripHtml } from '../../domain/render.js';
 import type { Card, Deck, Note, NoteType } from '../../domain/types.js';
@@ -385,9 +386,9 @@ async function cardInfo(ctx: AppContext, row: Row): Promise<void> {
     'div.col',
     {},
     el('div.preview-label', { text: 'Front' }),
-    el('div.preview-card', { html: deferMediaSrc(rendered.question) }),
+    safeCard(deferMediaSrc(rendered.question)),
     el('div.preview-label', { text: 'Back' }),
-    el('div.preview-card', { html: deferMediaSrc(rendered.answer) }),
+    safeCard(deferMediaSrc(rendered.answer)),
   );
   void media.resolve(preview);
 
@@ -460,4 +461,17 @@ async function cardInfo(ctx: AppContext, row: Row): Promise<void> {
   });
 
   media.dispose();
+}
+
+
+/**
+ * A preview panel holding untrusted card content.
+ *
+ * Card HTML comes from whoever wrote the deck, so it goes through the
+ * sanitiser rather than straight into innerHTML.
+ */
+function safeCard(html: string, side?: string): HTMLElement {
+  const node = el('div.preview-card', side ? { 'data-preview': side } : {});
+  setSafeHtml(node, html);
+  return node;
 }

@@ -4,6 +4,7 @@
  */
 
 import { button, el, field, input, render, textarea } from '../../ui/dom.js';
+import { setSafeHtml } from '../../ui/safe-html.js';
 import { confirmModal, promptModal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
@@ -194,9 +195,9 @@ async function mount(root: HTMLElement, ctx: AppContext, noteTypeId: string): Pr
                 'div.col',
                 {},
                 el('div.preview-label', { text: 'Front' }),
-                el('div.preview-card', { html: preview.question, 'data-preview': 'question' }),
+                safeCard(preview.question, 'question'),
                 el('div.preview-label', { text: 'Back', style: { marginTop: '10px' } }),
-                el('div.preview-card', { html: preview.answer, 'data-preview': 'answer' }),
+                safeCard(preview.answer, 'answer'),
                 notes.length === 0
                   ? el('p.faint', { text: 'No notes of this type yet, so the preview uses placeholder text.' })
                   : null,
@@ -329,4 +330,17 @@ function sampleFields(noteType: NoteType): Record<string, string> {
         : `[${f.name}]`;
   }
   return fields;
+}
+
+
+/**
+ * A preview panel holding untrusted card content.
+ *
+ * Card HTML comes from whoever wrote the deck, so it goes through the
+ * sanitiser rather than straight into innerHTML.
+ */
+function safeCard(html: string, side?: string): HTMLElement {
+  const node = el('div.preview-card', side ? { 'data-preview': side } : {});
+  setSafeHtml(node, html);
+  return node;
 }

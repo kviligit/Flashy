@@ -131,6 +131,43 @@ export interface ImportSummary {
 
 export type ImportMode = 'replace' | 'merge';
 
+export interface ImportProgress {
+  /** Which store is being written. */
+  store: string;
+  /** Human-readable name for that store. */
+  label: string;
+  /** How many records this step writes. */
+  records: number;
+  /** Steps finished before this one. */
+  step: number;
+  /** Total steps. */
+  steps: number;
+}
+
+/**
+ * Progress is reported once per store, not once per chunk.
+ *
+ * Each store is written in a single IndexedDB transaction, so reporting at
+ * that granularity costs nothing. Splitting the work finer to get a
+ * smoother bar measured about 50% slower overall — 17 seconds became 26 —
+ * whatever the chunk size, because the cost is in committing transactions
+ * rather than in the number of chunks. A coarse honest bar beats a smooth
+ * one that makes the wait half again as long.
+ */
+export interface ImportOptions {
+  onProgress?: (progress: ImportProgress) => void;
+}
+
+const STORE_LABELS: Record<string, string> = {
+  deckConfigs: 'deck presets',
+  decks: 'decks',
+  noteTypes: 'note types',
+  notes: 'notes',
+  cards: 'cards',
+  reviewLogs: 'review history',
+  media: 'images and sounds',
+};
+
 /**
  * Restore a backup.
  *
@@ -142,10 +179,24 @@ export async function importCollection(
   db: Db,
   data: unknown,
   mode: ImportMode = 'replace',
+  options: ImportOptions = {},
 ): Promise<ImportSummary> {
   const parsed = validateExport(data);
 
   if (mode === 'replace') await db.clear();
+
+  const steps = Object.keys(STORE_LABELS).length;
+  let step = 0;
+  const report = (store: string, records: number): void => {
+    options.onProgress?.({
+      store,
+      label: STORE_LABELS[store] ?? store,
+      records,
+      step,
+      steps,
+    });
+    step += 1;
+  };
 
   const summary: ImportSummary = {
     decks: 0,
@@ -169,6 +220,10 @@ export async function importCollection(
       incoming = items.filter((item) => !existing.has(item.id));
       summary.skipped += items.length - incoming.length;
     }
+    report(String(key), incoming.length);
+    // Yield so the progress just reported actually paints before the
+    // transaction begins; without this the bar only moves once it is over.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await store.putMany(incoming);
     summary[key] = incoming.length;
   };

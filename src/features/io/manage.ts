@@ -17,6 +17,7 @@ import {
   previewCsv,
   validateExport,
   type ImportMode,
+  type ImportProgress,
 } from '../../collection/io.js';
 import type { Deck, NoteType } from '../../domain/types.js';
 import { cleanupUnusedMedia, mediaUsage, type MediaUsage } from '../../collection/media.js';
@@ -143,8 +144,14 @@ async function restore(
     if (!ok) return;
   }
 
+  // A large collection takes tens of seconds to write on a phone. Without
+  // something moving, that is indistinguishable from the app having hung.
+  const progress = showProgress('Restoring backup');
   try {
-    const summary = await importCollection(ctx.db, parsed, mode);
+    const summary = await importCollection(ctx.db, parsed, mode, {
+      onProgress: (step) => progress.update(step),
+    });
+    progress.done();
     toast(
       `Imported ${summary.notes} notes, ${summary.cards} cards${summary.skipped ? `, skipped ${summary.skipped} existing` : ''}.`,
       'success',
@@ -152,8 +159,57 @@ async function restore(
     await ctx.scheduler.load();
     refresh();
   } catch (error) {
+    progress.done();
     toast(error instanceof Error ? error.message : String(error), 'error');
   }
+}
+
+interface ProgressPanel {
+  update(step: ImportProgress): void;
+  done(): void;
+}
+
+/**
+ * A blocking overlay for an operation that cannot be made fast.
+ *
+ * It deliberately covers the page: a restore replaces the whole collection,
+ * and letting someone start editing a note halfway through would be a way
+ * to lose work rather than a courtesy.
+ */
+function showProgress(title: string): ProgressPanel {
+  const bar = el('div', { style: { width: '0%' } });
+  const detail = el('p.muted', { text: 'Preparing…', style: { margin: '0' } });
+  const overlay = el(
+    'div.backdrop',
+    { 'data-role': 'progress' },
+    el(
+      'div.modal',
+      { role: 'status', 'aria-live': 'polite' },
+      el('header', { text: title }),
+      el(
+        'div.body',
+        {},
+        detail,
+        el('div.review-progress', { style: { height: '6px' } }, bar),
+        el('p.faint', { text: 'Leave this page open until it finishes.', style: { margin: '0' } }),
+      ),
+    ),
+  );
+  document.body.appendChild(overlay);
+
+  return {
+    update(step: ImportProgress) {
+      const percent = Math.round((step.step / Math.max(1, step.steps)) * 100);
+      bar.style.width = `${percent}%`;
+      detail.textContent =
+        step.records === 0
+          ? `Writing ${step.label}…`
+          : `Writing ${step.records.toLocaleString()} ${step.label}…`;
+    },
+    done() {
+      overlay.remove();
+    },
+  };
 }
 
 // --- CSV export ----------------------------------------------------------
