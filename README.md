@@ -21,6 +21,12 @@
 > has never run on real phone hardware. It has never been used by anyone
 > for actual studying.
 >
+> Two independent audits have been run — by a separate agent working from a
+> cold start, told to disprove rather than confirm — and the first found a
+> critical stored-XSS hole that the tests had missed entirely. The report
+> and the current state of every finding are in `docs/security-audit.md`.
+> That is a real check, and it is still not a human reading the code.
+>
 > **If you are going to rely on it**, keep backups (Import & export writes a
 > complete one), and read `src/fsrs/` and `src/scheduler/` yourself before
 > trusting your study time to them.

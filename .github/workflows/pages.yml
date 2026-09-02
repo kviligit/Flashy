@@ -11,6 +11,23 @@ on:
     branches: [main, master, claude/fsrs-flashcard-webapp-4a8p83]
   workflow_dispatch:
 
+# ---------------------------------------------------------------------------
+# A push to `main` builds but DOES NOT DEPLOY, and this is not fixable here.
+#
+# The `github-pages` environment carries a deployment branch policy that, by
+# default, permits only the repository's *default branch*. The default branch
+# is still `claude/fsrs-flashcard-webapp-4a8p83`, so every deploy job on
+# `main` fails after about a second with no steps and no log — which looks
+# exactly like an infrastructure hiccup and is not one. Between 2026-09-01 and
+# 2026-09-02 that silently left the published site eight commits behind,
+# including a stored-XSS fix, while `main` looked green in every other way.
+#
+# The fix is one repository setting: Settings -> General -> Default branch,
+# set it to `main`. Until then, `claude/fsrs-flashcard-webapp-4a8p83` must be
+# fast-forwarded to `main` and pushed for anything to actually reach the site,
+# and "it built" must not be read as "it shipped".
+# ---------------------------------------------------------------------------
+
 permissions:
   contents: read
   pages: write
