@@ -26,7 +26,7 @@ import { signEvent } from '../nostr/event.js';
 import { readSyncState, syncWith } from './engine.js';
 import { applyChanges } from './merge.js';
 import { NostrTransport, FLASHY_KIND, DEVICE_TAG, APP_TAG, APP_NAME } from './nostr-transport.js';
-import { decodeChangeSet, WIRE_VERSION } from './wire.js';
+import { chunkChangeSet, decodeChangeSet, WIRE_VERSION } from './wire.js';
 
 const secretKey = generateSecretKey();
 const signer = new LocalSigner(secretKey);
@@ -527,4 +527,100 @@ test('a tombstone still removes a record, and still cannot touch a review log', 
 
   assert.equal(counts.deleted, 1);
   assert.ok(!(await db.notes.get(note.id)));
+});
+
+
+// --- M1/M2: a round has to fit on a phone --------------------------------
+
+test('a round past its record budget stops, and refuses to claim it saw the rest', async () => {
+  const tick = makeClock();
+  const relay = new FakeRelay('wss://relay.test');
+  const { db } = await collection(tick);
+  const now = Date.now();
+
+  const deckRecord = (id: string, modified: number) => ({
+    store: 'decks',
+    version: modified,
+    record: {
+      id,
+      name: id,
+      configId: 'x',
+      description: '',
+      collapsed: false,
+      created: 1,
+      modified,
+    },
+  });
+
+  // Two chunks of three records each, against a budget of four.
+  await publishChunk(relay, 'peer', {
+    until: now,
+    upserts: [deckRecord('a1', now), deckRecord('a2', now), deckRecord('a3', now)],
+  });
+  await publishChunk(relay, 'peer', {
+    until: now + 1000,
+    upserts: [deckRecord('b1', now), deckRecord('b2', now), deckRecord('b3', now)],
+  });
+
+  const transport = new NostrTransport({
+    signer,
+    pubkey,
+    deviceId: 'mine',
+    relays: [new Relay(relay.url, { socket: relay.connect, timeoutMs: 2000 })],
+    now: tick,
+    maxRecordsPerRound: 4,
+  });
+
+  await syncWith(db, transport, { now: tick });
+
+  const decks = await db.decks.getAll();
+  const arrived = decks.filter((deck) => /^[ab]\d$/.test(deck.id));
+  assert.equal(arrived.length, 3, 'one chunk was taken, the other left for later');
+
+  // The critical half: a truncated round must not advance the watermark,
+  // or the chunk it declined to read falls below the cut for ever.
+  const state = await readSyncState(db, `nostr:${pubkey}`);
+  assert.equal(state.lastPulledAt, 0, 'nothing was claimed as seen');
+
+  // And the next round, with room, picks up what was left.
+  const roomy = new NostrTransport({
+    signer,
+    pubkey,
+    deviceId: 'mine',
+    relays: [new Relay(relay.url, { socket: relay.connect, timeoutMs: 2000 })],
+    now: tick,
+  });
+  await syncWith(db, roomy, { now: tick });
+
+  const after = (await db.decks.getAll()).filter((deck) => /^[ab]\d$/.test(deck.id));
+  assert.equal(after.length, 6, 'the remainder arrived rather than being lost');
+});
+
+test('oversized media is rejected without being encoded first', () => {
+  // The audit measured 2966ms and 85MB of heap to discover that a 32MB
+  // file did not fit, because it was base64-encoded before being measured
+  // — a fully synchronous freeze of the UI thread, repeated every round
+  // for as long as the push kept failing.
+  const record = {
+    id: 'big',
+    filename: 'big.png',
+    mime: 'image/png',
+    size: 32 * 1024 * 1024,
+    data: new ArrayBuffer(32 * 1024 * 1024),
+    created: 1,
+    modified: 2,
+  };
+
+  const start = performance.now();
+  const { chunks, oversized } = chunkChangeSet(
+    { since: 0, until: 100, deletions: [], upserts: [{ store: 'media', record: record as never, version: 2 }] },
+    'device-a',
+  );
+  const elapsed = performance.now() - start;
+
+  assert.equal(oversized.length, 1);
+  assert.equal(chunks.length, 0);
+  // Generous by three orders of magnitude against the measured 2966ms, so
+  // this fails on a regression rather than on a slow machine.
+  assert.ok(elapsed < 250, `took ${elapsed.toFixed(0)}ms; it should not be encoding the file`);
 });

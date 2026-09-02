@@ -156,6 +156,49 @@ record carries an indexed version, and there is a change feed
 (`changesSince`) that a transport can attach to. See
 [docs/sync.md](docs/sync.md) for the seam and the decisions behind it.
 
+## Sync across devices (optional, off by default)
+
+Two devices holding the same collection can be kept in step through
+[nostr](https://github.com/nostr-protocol/nips) relays. It is off until you
+turn it on, and turning it on is three steps: create or paste a key, add a
+relay, press Sync.
+
+**What is sent.** A change set — the records that changed since the last
+round — encrypted with NIP-44 to *your own* public key. A relay carries
+ciphertext that only your key can open. Nothing is published in the clear.
+
+**What a relay still learns, and it is not nothing.** Relays index events by
+author, so anyone who knows your public key can ask any relay when you
+studied, from how many devices, and roughly how much changed each time. The
+contents stay unreadable; the pattern does not. Use a key you use only for
+this — reusing your nostr profile key ties a permanent, timestamped record
+of your study habits to your public identity.
+
+**Where the key lives.** In a browser extension if you have one, which is
+the safest arrangement available on the web: the key never enters the page.
+On iPhone there are no extensions, so it is stored in the browser, where
+anything that can run code on the page can read it. The settings screen says
+this in as many words rather than implying a safety it does not have.
+
+**How conflicts resolve.** Last write wins on the record's own timestamp,
+except review logs, which are append-only and merged rather than overwritten
+— so answering the same card on two devices keeps both answers and replays
+the card's schedule from the combined history. Deletions travel as
+tombstones, so a deleted card does not come back from a device that never
+saw it go.
+
+**The honest caveat.** The cryptography here is hand-written, because this
+project cannot install packages. It is verified against the specifications'
+own test vectors — all 19 BIP-340 vectors, every NIP-44 vector, ChaCha20
+byte-identical to a known-good implementation — and it has been through an
+independent adversarial audit (`docs/sync-audit.md`, kept verbatim, findings
+and all). That is evidence the implementations are correct. It is not a
+cryptographic audit, and there are no constant-time guarantees, because
+JavaScript bigints leak timing. Treat it as better than nothing rather than
+as proven.
+
+Design notes and the decisions behind them: `docs/sync.md`.
+
 ## FSRS-6
 
 Ported from the reference implementation
