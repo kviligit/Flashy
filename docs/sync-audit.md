@@ -1,3 +1,59 @@
+> **Status note, added when the report landed.**
+>
+> This is the second independent audit of this project, run cold against
+> the `claude/nostr-sync` branch with instructions to disprove rather than
+> confirm. It is kept verbatim below; nothing has been softened.
+>
+> **Fixed** (commit `681d35e`), each with a regression test in
+> `src/sync/audit-regressions.test.ts` or `tests/e2e.mjs`:
+>
+> - **C1 (watermark poisoning)** — implausible timestamps refused in
+>   `decodeChangeSet`, watermark clamped to the skew allowance, and a
+>   "Re-read everything" button added because there was no recovery path.
+> - **C2 (withheld or reordered events lost for ever)** — the watermark
+>   moves only when every relay answered and nothing was truncated, and the
+>   client-side cut is widened by the same day the relay window is.
+> - **C3 (CSP forbade every relay socket)** — `connect-src` now includes
+>   `wss:`, with an end-to-end check that opens a real WebSocket from the
+>   real page. Confirmed to fail when the directive is narrowed again.
+> - **H1 (review-log snapshot and reviewedAt unchecked)** — both validated;
+>   replay failures counted rather than thrown.
+> - **H2 (relay ACKs and discards)** — a push reads a sample back before
+>   the watermark advances.
+> - **H3 (media not content-addressed)** — ids verified against content.
+> - **H4 (forced signature verification)** — filter and dedup checks moved
+>   ahead of verification; a separate cap bounds events *offered*.
+> - **M1 (unbounded round)** — a record budget per round, which declines to
+>   advance the watermark rather than dropping the remainder.
+> - **M2 (encode-then-measure)** — raw byte size checked first.
+> - **M3 (frozen records)** — the future allowance for a record's own
+>   timestamp is five minutes rather than a day. This bounds the problem
+>   rather than solving it, and the code says so: last-write-wins over
+>   peer-supplied clocks cannot be made safe without version vectors.
+> - **M4 (silent success)** — an incomplete round is a failed round.
+> - **M6 (metadata exposure understated)** — the warning now says anyone
+>   who knows the public key can read the pattern, not just the operator,
+>   and recommends a dedicated key.
+> - **L1, L2, L3** — hex parsing, extension public keys, relay notices.
+> - **All nine untrue comments** corrected.
+>
+> **Not fixed, deliberately:**
+>
+> - **M5 (no per-store record validation)** — a peer can still write a card
+>   with a nonsense `deckId`. It is a data-integrity problem, not an XSS
+>   one: content still passes through `safe-html.ts`, and media MIME is
+>   still clamped at the blob sink. A full per-store schema is worth
+>   writing and is not a thing to bolt on unattended.
+> - **L4, L5** — the inbound message queue is bounded in practice by the
+>   new offered-event cap; the ChaCha20 counter cannot wrap below the
+>   65535-byte plaintext limit.
+>
+> The auditor's three named blind spots in the old suite — an injected
+> socket, a fake relay that never lied about completeness, and clocks that
+> were always real — now each have a test.
+
+---
+
 # Adversarial audit — `claude/nostr-sync` cross-device sync layer
 
 Repository: `/home/user/Flashy`, branch `claude/nostr-sync` at `d7a76e8`.
