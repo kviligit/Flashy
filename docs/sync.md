@@ -291,3 +291,38 @@ remembering to filter.
 The intended shape is a new `src/sync/` directory that depends on
 `src/storage/` and `src/fsrs/` and nothing else. No existing layer should
 need to change to accommodate it.
+
+## Is this ready to merge into main?
+
+Not on my say-so, and this is the decision rather than an absence of one.
+
+**What is done.** The feature works end to end and is off by default. Two
+independent audits have been run against it, the second one specifically
+at this branch; every finding it raised is fixed except two it rated LOW
+and judged contained, and each fix has a regression test. 406 unit tests
+and 93 end-to-end checks pass, including the version 4 to version 5
+upgrade every existing user would run.
+
+**Why it is still on a branch.** Merging means publishing hand-written
+cryptography to a live site. `src/nostr/secp256k1.ts`, `chacha20.ts` and
+`nip44.ts` were written from the specifications because this project
+cannot install packages, and they are verified against those
+specifications' own test vectors — all 19 BIP-340 vectors, every NIP-44
+vector, byte-identical ChaCha20 output against a known-good
+implementation. That is evidence the *implementations* are correct. It is
+not a cryptographic audit, nobody has reviewed the constant-time
+properties (there are none: JavaScript bigints leak timing), and the
+second audit's own conclusion was that "better than nothing, not proven"
+remains the right framing.
+
+Shipping that to a phone belongs to whoever owns the collection, not to
+whoever wrote the code. The standing instruction here was to keep
+controversial work on its own branch, and unaudited crypto reaching a live
+site is the clearest case of that there is.
+
+**What would change the answer.** Any of: a real cryptographic review of
+`src/nostr/`; the npm registry becoming reachable, so `@noble/curves` and
+`@noble/ciphers` can replace the hand-written primitives outright (the
+exported surfaces already mirror theirs, which is why they were written
+that way); or the owner deciding the trade is worth it for their own
+collection with the warnings understood.
