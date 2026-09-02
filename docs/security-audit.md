@@ -20,11 +20,17 @@
 >   reachable-today path) — import now refuses any non-finite number.
 > - **Finding 8 (unbounded import work)** — an export now declares at most
 >   500k records and 512MB of media, checked before anything is decoded.
+> - **Finding 3 (service worker amplifies XSS)** — the worker now caches
+>   only the app's own files rather than any same-origin URL, and settings
+>   has a "Reset the offline copy" button that unregisters every worker and
+>   deletes every cache without touching the collection. That is the part
+>   that mattered: on an installed app there is no address bar and no
+>   "clear site data", so recovery previously meant deleting the app, which
+>   on iOS takes the cards with it. Cached entries are still not
+>   integrity-checked; see the note below.
 >
 > Outstanding:
 >
-> - **Finding 3 (service worker amplifies XSS)** — mitigated in practice by
->   fixing Finding 1, but the persistence mechanism itself is unchanged.
 > - **Finding 4 (merge layer trusts a peer)** — the remaining parts live on
 >   `claude/nostr-sync` and are being addressed there. Nothing in the
 >   shipped app reaches them: there is no transport.
@@ -32,6 +38,16 @@
 >   pinned exactly in `package.json` and in the workflow. A real lockfile
 >   still cannot be generated here, so this stays partly open until the
 >   registry is reachable and the install becomes `npm ci`.
+>
+> Not done, and deliberately:
+>
+> - **Integrity-checking cached app files** (the second half of Finding 3's
+>   suggested fix) would mean hashing every build artefact at build time and
+>   verifying on serve. It is the only thing that would stop a poisoned
+>   cache entry outright, and it is worth doing — but it puts a generated
+>   manifest between the build and a working app, and getting it wrong
+>   breaks the deployed site for everyone. It is not being bolted on while
+>   nobody is watching.
 
 ---
 

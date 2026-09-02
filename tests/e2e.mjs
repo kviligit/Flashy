@@ -712,6 +712,20 @@ async function run(playwright) {
     const appState = await appPage.locator('[data-role="storage-state"]').innerText();
     check('an installed iOS app reports its storage as protected', /protected/i.test(appState), appState);
 
+    // The recovery path for a tampered-with or broken offline copy. On an
+    // installed app there is no address bar and no "clear site data", so
+    // without this the only way out takes the collection with it.
+    check(
+      'settings offers a way to reset the offline copy',
+      (await appPage.locator('[data-action="reset-offline"]').count()) === 1,
+    );
+    const offlineText = await appPage.locator('[data-card="offline"]').innerText();
+    check(
+      'and says plainly that the cards are not affected',
+      /not affected|stay exactly as they are/i.test(offlineText),
+      offlineText.slice(0, 80),
+    );
+
     // Touch targets have to survive the narrower iPhone viewport too.
     await appPage.goto(`${BASE}#/add`);
     await appPage.waitForSelector('textarea[data-field]');
