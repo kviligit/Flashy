@@ -389,3 +389,64 @@ test('merging a backup does not duplicate media, since ids are content hashes', 
   assert.equal(summary.media, 0, 'the identical file is already there');
   assert.equal(await db.media.count(), 1);
 });
+
+// --- hostile backups -----------------------------------------------------
+
+test('a backup carrying a non-finite number is refused', () => {
+  // JSON.parse turns 1e309 into Infinity. A record with an infinite
+  // `modified` would win every conflict forever, and one with an infinite
+  // elapsedDays would poison a card's schedule.
+  const withInfinity = JSON.parse(
+    `{"format":"${EXPORT_FORMAT}","version":2,"noteTypes":[{"id":"nt"}],` +
+      `"notes":[{"id":"n","modified":1e309,"fields":{}}]}`,
+  );
+  assert.throws(() => validateExport(withInfinity), /impossible number/);
+
+  const nested = JSON.parse(
+    `{"format":"${EXPORT_FORMAT}","version":2,` +
+      `"reviewLogs":[{"id":"l","elapsedDays":-1e400,"snapshot":{"id":"c"}}]}`,
+  );
+  assert.throws(() => validateExport(nested), /impossible number/);
+});
+
+test('an ordinary backup still validates', async () => {
+  const { db, basic, deck } = await setup();
+  await addNote(db, { noteTypeId: basic.id, deckId: deck.id, fields: { Front: 'ok' } });
+  const wire = JSON.parse(JSON.stringify(await exportCollection(db)));
+  assert.doesNotThrow(() => validateExport(wire));
+});
+
+test('a hostile media type is neutralised on import', async () => {
+  const db = new MemoryDb();
+  await importCollection(
+    db,
+    {
+      format: EXPORT_FORMAT,
+      version: 2,
+      media: [
+        { id: 'a', filename: 'x.html', mime: 'text/html', size: 4, data: btoa('evil'), created: 1, modified: 1 },
+        { id: 'b', filename: 'y.png', mime: 'image/png', size: 4, data: btoa('png!'), created: 1, modified: 1 },
+        { id: 'c', filename: 'z.png', mime: 'image/svg+xml;charset=utf-8', size: 4, data: btoa('svg!'), created: 1, modified: 1 },
+      ],
+    },
+    'replace',
+  );
+
+  assert.equal((await db.media.get('a'))?.mime, 'application/octet-stream', 'text/html is neutralised');
+  assert.equal((await db.media.get('b'))?.mime, 'image/png', 'a real image type survives');
+  assert.equal((await db.media.get('c'))?.mime, 'image/svg+xml', 'parameters are stripped');
+});
+
+test('a lying size is replaced by the real one', async () => {
+  const db = new MemoryDb();
+  await importCollection(
+    db,
+    {
+      format: EXPORT_FORMAT,
+      version: 2,
+      media: [{ id: 'a', filename: 'x.png', mime: 'image/png', size: 999999, data: btoa('four'), created: 1, modified: 1 }],
+    },
+    'replace',
+  );
+  assert.equal((await db.media.get('a'))?.size, 4, 'the bytes decide, not the claim');
+});
