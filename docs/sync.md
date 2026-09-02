@@ -175,26 +175,107 @@ USB stick, a WebDAV folder, a server, a relay.
 - `event.ts` — NIP-01 events, with ids re-derived on verification rather
   than trusted.
 
-### What a nostr transport still needs
+### The transport, as built
 
-- The user's key pair is the identity; `deviceId` distinguishes their
-  devices from each other.
-- A `ChangeSet` becomes one or more events, encrypted to the user's own
-  key. **Collection contents must never be published in the clear** — a
-  flashcard deck is a detailed record of what someone is learning, and
-  relays are public infrastructure.
-- Relays are untrusted and unordered, so events need to carry the same
-  watermark information the change feed already produces, and the merge has
-  to be idempotent and order-independent. Last-write-wins on `modified`
-  plus append-only review logs satisfies that.
-- Relay message size limits will force large collections to be chunked;
-  the change feed's `since`/`until` window is the natural chunk boundary.
-- `pruneTombstones()` exists so tombstones do not accumulate forever, but
-  it can only run once every device is known to have seen them — which
-  needs per-device watermarks that do not exist yet.
+`src/sync/nostr-transport.ts` implements `SyncTransport` over relays.
 
-None of this constrains the app. It is one implementation of a two-method
-interface over a shape that already exists.
+A change set is chunked, each chunk is encrypted with NIP-44 to the
+user's **own** key, and each is published as one event. The user's other
+devices ask their relays for events by that key, decrypt them, and merge.
+The relay carries ciphertext it cannot read.
+
+Encrypting to yourself is the point, not a placeholder. A flashcard
+collection is a detailed record of what someone is studying, what they
+keep getting wrong, and when they are awake. Publishing that in the clear
+on someone else's server would be indefensible.
+
+**What a relay still learns**, stated plainly because nothing here hides
+it: that this pubkey syncs, from how many devices, how often, and roughly
+how much data. That is inherent to using relays. Running your own is the
+only way to change it.
+
+Decisions taken, each argued in the source next to the code it governs:
+
+- **Kind 9078**, a regular event, so relays store it rather than
+  replacing it — a change feed is a log, and a replaceable kind would
+  keep only the newest chunk. Relays may refuse kinds they do not
+  recognise; that surfaces as a rejected publish carrying the relay's own
+  reason, not as silence.
+- **Seconds, with a day of lookback.** NIP-01 filters on `created_at`, in
+  seconds; the change feed's watermarks are in milliseconds. Rather than
+  keep two clocks, the query window is widened by a day — the same
+  allowance the merge layer makes for clock skew — and cut precisely on
+  the client. Re-reading a day of events costs bandwidth, not
+  correctness: applying a change twice is a no-op by construction.
+- **Chunks are independent change sets**, not fragments. A device applies
+  whichever arrived and picks the rest up next round. No partial state,
+  nothing to reassemble, and an unreliable relay is merely slow.
+- **A device ignores its own events**, by a device-id tag, so it does not
+  merge its own changes back into itself. Two devices share one key, so
+  the author field cannot do this.
+
+### Records that do not fit
+
+NIP-44 caps a plaintext at 65535 bytes, and chunking cannot split a
+single record. A record larger than one chunk — in practice, an image —
+is left behind and **reported**: `push` records it, and the sync screen
+says how many files did not go. A sync that silently drops an image is
+worse than one that says it did.
+
+Carrying media properly needs a blob transport (NIP-96, Blossom) rather
+than more chunking; splitting a 5MB image across eighty events would
+abuse relays that are doing us a favour. The filter is one clearly-named
+place in `wire.ts`, so adding that later is a local change.
+
+### The wire format
+
+`src/sync/wire.ts` exists because `JSON.stringify` renders an
+`ArrayBuffer` as `{}` — silently, with no error. Left alone, every image
+would arrive as an empty object and overwrite the real one. Binary is
+tagged and base64-encoded on the way out, restored on the way in, by a
+general walk rather than a special case for `media.data`.
+
+The decoder treats a peer as a stranger even though the payload is
+authenticated. The relay cannot forge it, but a peer running different
+code — a future version, a half-finished one, someone else's
+implementation — is the case that actually corrupts a collection. Unknown
+stores, non-finite numbers, records without ids, tombstones whose id
+disagrees with the record they name, and `__proto__` keys are all refused
+before the merge layer sees them.
+
+### Keys
+
+`src/nostr/signer.ts` is NIP-07's interface, deliberately.
+
+- `Nip07Signer` delegates to a browser extension. The key never enters
+  the page, so a script injected into the page cannot steal it. This is
+  the right answer wherever an extension exists.
+- `LocalSigner` holds the key in the page and stores it in
+  `localStorage`. It is the only option on iOS Safari, and its weakness
+  is the obvious one: anything that can run script in this origin can
+  read the key. The settings screen says so in those words.
+
+An extension without NIP-44 support is a hard failure rather than a
+fallback. Falling back to an unencrypted sync would be catastrophic;
+falling back to a local key would defeat the reason for using the
+extension.
+
+The identity lives in `localStorage`, **not** in the collection. The
+collection is what gets exported, backed up and synced; an identity
+inside it would ride along in all three, so a backup handed to someone
+else would carry the key that unlocks the sync history. Keeping it beside
+the collection makes export safe by construction rather than by
+remembering to filter.
+
+### Still to do
+
+- `pruneTombstones()` exists but cannot run safely: it needs per-device
+  watermarks — proof every device has seen a tombstone — which the
+  current single watermark per account does not give.
+- Media, per the note above.
+- No reconnection or live subscription. A round opens sockets, runs, and
+  closes them. If live updates are ever wanted, that is a change to
+  `src/sync/run.ts` alone.
 
 ## Where the seams are
 

@@ -11,6 +11,7 @@
 import { button, el, render } from '../../ui/dom.js';
 import { modal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
+import { maybeAutoSync } from '../../sync/auto.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
 import { renderCard } from '../../domain/cards.js';
@@ -291,6 +292,11 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
     );
 
   const drawDone = (): void => {
+    // The end of a session is the one moment with a batch worth sending and
+    // nobody mid-card. Not awaited: the done screen must not wait on a
+    // relay, and maybeAutoSync reports its own failures.
+    void maybeAutoSync(ctx.db);
+
     const elapsedMin = (ctx.scheduler.now() - sessionStart) / 60_000;
     const accuracy = answered === 0 ? 0 : ((answered - againCount) / answered) * 100;
     const secondsPerCard = answered === 0 ? 0 : totalMs / answered / 1000;
