@@ -12,6 +12,7 @@ import { managePage } from '../features/io/manage.js';
 import { settingsPage } from '../features/settings/settings.js';
 import { deckOptions } from '../features/settings/deck-options.js';
 import { noteTypeEditor } from '../features/settings/notetype-editor.js';
+import { syncPage } from '../features/sync/sync-settings.js';
 import { fsrsLab } from '../features/debug/fsrs-lab.js';
 import { storageCheck } from '../features/debug/storage-check.js';
 import { sampleData } from '../features/debug/sample-data.js';
@@ -84,6 +85,7 @@ function routes(ctx: AppContext): Router {
     .add('/settings', () => settingsPage(ctx))
     .add('/settings/deck/:deckId', (p) => deckOptions(ctx, p['deckId']!))
     .add('/settings/notetype/:id', (p) => noteTypeEditor(ctx, p['id']!))
+    .add('/sync', () => syncPage(ctx))
     .add('/study/:deckId', (p) => reviewer(ctx, p['deckId']!))
     .add('/add', (_p, query) => noteEditor(ctx, query.get('deck') ? { deckId: query.get('deck')! } : {}))
     .add('/edit/:noteId', (p) => noteEditor(ctx, { noteId: p['noteId']! }))

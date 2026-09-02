@@ -744,6 +744,54 @@ async function run(playwright) {
     check('the nav fits without clipping on an iPhone SE', layout.navFits);
     check('the answer buttons are reachable without scrolling', layout.barVisible);
     check('the review screen needs no scrolling on an iPhone SE', !layout.scrolls);
+
+    // --- sync ---
+    // Off by default, and it must stay that way: nothing should leave the
+    // device because someone opened a settings page.
+    await appPage.goto(`${BASE}#/sync`);
+    await appPage.waitForSelector('[data-card="sync-identity"]');
+    check(
+      'the sync page leads with what it sends and to whom',
+      /never been audited/i.test(await appPage.locator('[data-card="sync-warning"]').innerText()),
+    );
+    check(
+      'sync is off until a key exists',
+      (await appPage.locator('[data-card="sync-run"]').count()) === 0,
+    );
+    check(
+      'no key is stored just because the page was opened',
+      await appPage.evaluate(() => localStorage.getItem('flashy.sync.secretKey') === null),
+    );
+    const syncLayout = await appPage.evaluate(() => ({
+      noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+    }));
+    check('the sync page fits the iPhone SE viewport', syncLayout.noOverflow);
+
+    await appPage.click('[data-action="create-key"]');
+    await appPage.waitForSelector('[data-role="npub"]');
+    const shown = await appPage.locator('[data-card="sync-identity"]').innerText();
+    check('the public key is shown as an npub', /npub1/.test(shown), shown.slice(0, 40));
+    const secret = await appPage.evaluate(() => localStorage.getItem('flashy.sync.secretKey'));
+    check('a real key was stored', /^[0-9a-f]{64}$/.test(String(secret)));
+    check(
+      'the secret key is never rendered until it is asked for',
+      !shown.includes('nsec1') && !shown.includes(String(secret)),
+    );
+
+    await appPage.waitForSelector('[data-card="sync-run"]');
+    const runText = await appPage.locator('[data-card="sync-run"]').innerText();
+    check('with no relays, the button says why it cannot run', /at least one relay/i.test(runText), runText.slice(0, 60));
+    check(
+      'and the button is actually disabled, not merely explained',
+      await appPage.locator('[data-action="sync-now"]').isDisabled(),
+    );
+
+    // Leave nothing behind for whatever runs next.
+    await appPage.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('flashy.sync.')) localStorage.removeItem(key);
+      }
+    });
     await iosApp.close();
 
     check('no uncaught errors on iOS', iosErrors.length === 0, iosErrors.slice(0, 3).join(' | '));

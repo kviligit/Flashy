@@ -61,6 +61,19 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
 
     storageCard(ctx, storage, used, refresh),
 
+    // Sync is off by default and lives on its own page: it is the one
+    // feature here that sends anything anywhere, and it deserves the room
+    // to say so rather than a checkbox among the study settings.
+    el(
+      'div.card.col',
+      {},
+      el('h3', { text: 'Sync across devices' }),
+      el('p.faint', {
+        text: 'Optional, off by default. Uses nostr relays to keep another device in step with this one.',
+      }),
+      el('div.row', {}, button('Open sync settings', () => navigate('/sync'), {})),
+    ),
+
     el(
       'div.card.col',
       {},
