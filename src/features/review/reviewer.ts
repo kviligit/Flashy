@@ -16,6 +16,7 @@ import type { AppContext } from '../../app/context.js';
 import { renderCard } from '../../domain/cards.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
+import { setSafeHtml } from '../../ui/safe-html.js';
 import type { Card, Note, NoteType } from '../../domain/types.js';
 import {
   RATING_LABEL,
@@ -220,9 +221,9 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
     if (!current) return;
 
     const content = el('div.review-content', {
-      html: deferMediaSrc(showingAnswer ? current.answer : current.question),
       'data-side': showingAnswer ? 'answer' : 'question',
     });
+    setSafeHtml(content, deferMediaSrc(showingAnswer ? current.answer : current.question));
     void media.resolve(content);
 
     const counts = session.queue.counts;

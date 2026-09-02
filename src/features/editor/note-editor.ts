@@ -12,6 +12,7 @@ import { addNote, completeFields, parseTags, updateNote } from '../../collection
 import { addMedia } from '../../collection/media.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
+import { setSafeHtml } from '../../ui/safe-html.js';
 import { applyPrefix, SNIPPETS } from './snippets.js';
 import type { Deck, Note, NoteType } from '../../domain/types.js';
 
@@ -273,8 +274,8 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
                         ? `Cloze ${ord}`
                         : (noteType.templates[ord]?.name ?? `Card ${ord + 1}`),
                   }),
-                  el('div.preview-card', { html: deferMediaSrc(question), 'data-preview': 'question' }),
-                  el('div.preview-card', { html: deferMediaSrc(answer), 'data-preview': 'answer' }),
+                  safeCard(deferMediaSrc(question), 'question'),
+                  safeCard(deferMediaSrc(answer), 'answer'),
                 ),
               );
             }),
@@ -402,4 +403,17 @@ function snippetBar(
       ),
     ),
   );
+}
+
+
+/**
+ * A preview panel holding untrusted card content.
+ *
+ * Card HTML comes from whoever wrote the deck, so it goes through the
+ * sanitiser rather than straight into innerHTML.
+ */
+function safeCard(html: string, side?: string): HTMLElement {
+  const node = el('div.preview-card', side ? { 'data-preview': side } : {});
+  setSafeHtml(node, html);
+  return node;
 }

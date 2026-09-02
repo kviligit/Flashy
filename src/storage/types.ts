@@ -81,18 +81,32 @@ export interface Db {
 }
 
 /** Which fields are indexed, per store. Shared by both implementations. */
+/**
+ * Index only what is actually queried.
+ *
+ * An index is not free: each one adds roughly 30% to the write cost of its
+ * store. Measured on a throttled, phone-like CPU, writing 5000 cards takes
+ * 657ms with no indexes and 3654ms with six — and a restore writes tens of
+ * thousands of records. `bench/` holds the measurements.
+ *
+ * `modified` looks unused because nothing names it directly: the change
+ * feed reaches it through VERSION_FIELD. Without the index that scan is a
+ * full read of the store, and on IndexedDB an outright error.
+ */
 export const INDEXES = {
-  // `modified` is indexed on every content store because the change feed
-  // range-scans it; without the index that scan is a full table read on
-  // IndexedDB, and an outright error if the index is missing.
-  decks: ['name', 'configId', 'modified'],
+  decks: ['name', 'modified'],
   deckConfigs: ['name', 'modified'],
   noteTypes: ['name', 'modified'],
   notes: ['noteTypeId', 'modified'],
-  cards: ['noteId', 'deckId', 'due', 'state', 'position', 'modified'],
+  // `state` used to be indexed here and was never queried — the queue reads
+  // cards by deck and filters in memory. On the largest store in the
+  // collection that was pure write cost.
+  cards: ['noteId', 'deckId', 'due', 'position', 'modified'],
   reviewLogs: ['cardId', 'reviewedAt'],
   meta: [],
-  media: ['filename', 'modified'],
+  // `filename` likewise: never queried, and media records are large enough
+  // that indexing them was among the more expensive dead entries.
+  media: ['modified'],
   syncState: ['lastSyncedAt'],
   deletions: ['store', 'deletedAt'],
 } as const satisfies Record<string, readonly string[]>;

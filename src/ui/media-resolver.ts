@@ -11,7 +11,7 @@
  * editor one per mount.
  */
 
-import { MEDIA_DEFER_ATTRIBUTE, mediaIdFrom } from '../domain/media.js';
+import { MEDIA_DEFER_ATTRIBUTE, mediaIdFrom, mediaKind } from '../domain/media.js';
 import type { Db } from '../storage/index.js';
 
 export class MediaResolver {
@@ -69,7 +69,12 @@ export class MediaResolver {
     const raced = this.urls.get(id);
     if (raced) return raced;
 
-    const url = URL.createObjectURL(new Blob([file.data], { type: file.mime }));
+    // Clamp the type at the point the URL is made, not only where the file
+    // was stored. This is the sink: whatever a record claims, an object URL
+    // here is only ever an image or a sound, so nothing downstream can be
+    // talked into treating one as a document.
+    const type = mediaKind(file.mime) ? file.mime : 'application/octet-stream';
+    const url = URL.createObjectURL(new Blob([file.data], { type }));
     if (this.disposed) {
       URL.revokeObjectURL(url);
       return null;

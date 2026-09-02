@@ -7,7 +7,6 @@ import {
   isBlankQuestion,
   renderCloze,
   renderTemplate,
-  sanitiseHtml,
   stripHtml,
 } from './render.js';
 import { cardPreview, generateOrds, renderCard } from './cards.js';
@@ -126,30 +125,21 @@ test('cloze hints are escaped', () => {
 
 // --- sanitising ----------------------------------------------------------
 
-test('scripts and event handlers are stripped', () => {
-  assert.ok(!sanitiseHtml('<script>alert(1)</script>hi').includes('script'));
-  assert.ok(!sanitiseHtml('<img src=x onerror="alert(1)">').includes('onerror'));
-  assert.ok(!sanitiseHtml("<img src=x onerror='alert(1)'>").includes('onerror'));
-  assert.ok(!sanitiseHtml('<img src=x onerror=alert(1)>').includes('onerror'));
-  assert.ok(!sanitiseHtml('<iframe src="evil"></iframe>').includes('iframe'));
-  assert.match(sanitiseHtml('<a href="javascript:alert(1)">x</a>'), /href="#"/);
-});
+// Sanitising moved out of this module entirely: it cannot be done safely
+// without a parser, and this layer is deliberately DOM-free. The security
+// boundary is `setSafeHtml` in src/ui/safe-html.ts, tested in
+// src/ui/safe-html.test.ts and end-to-end in a real browser.
 
-test('ordinary formatting survives sanitising', () => {
-  const html = '<b>bold</b> <i>italic</i> <br> <img src="a.png"> <div class="x">y</div>';
-  assert.equal(sanitiseHtml(html), html);
+test('rendering does not claim to sanitise', () => {
+  // Rendering passes author HTML through unchanged. That is not a bug: it
+  // is why every insertion point must use setSafeHtml. Pinning it here so
+  // nobody later mistakes this layer for a safe one.
+  const hostile = '<img src=x onerror="alert(1)">';
+  assert.equal(
+    renderTemplate('{{Front}}', { fields: { Front: hostile }, ord: 0, side: 'question' }),
+    hostile,
+  );
 });
-
-test('a hostile field cannot execute through a template', () => {
-  const out = renderTemplate('{{Front}}', {
-    fields: { Front: '<img src=x onerror="alert(1)">' },
-    ord: 0,
-    side: 'question',
-  });
-  assert.ok(!out.includes('onerror'));
-});
-
-// --- helpers -------------------------------------------------------------
 
 test('stripHtml flattens markup and whitespace', () => {
   assert.equal(stripHtml('<b>a</b><br><i>b</i>   c'), 'a b c');

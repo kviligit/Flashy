@@ -578,6 +578,89 @@ async function run(playwright) {
 
     check('no uncaught errors anywhere', errors.length === 0, errors.slice(0, 3).join(' | '));
 
+    // --- HTML sanitising ---
+    // The payloads below all executed against the previous regex-based
+    // sanitiser. They are driven through the real render path and the real
+    // DOM here, because a sanitiser tested against anything less proves
+    // nothing: the whole class of bug comes from how a real parser differs
+    // from what you expect.
+    const xss = await page.evaluate(async () => {
+      const { setSafeHtml } = await import('/dist/ui/safe-html.js');
+      const { renderTemplate } = await import('/dist/domain/render.js');
+      const { XSS_PAYLOADS } = await import('/dist/ui/fixtures/xss-payloads.js');
+
+      const fired = [];
+      const survived = [];
+      for (const payload of XSS_PAYLOADS) {
+        delete window.__xss;
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        // Through the real template renderer, exactly as a hostile deck's
+        // note field would arrive.
+        const rendered = renderTemplate('{{Front}}', {
+          fields: { Front: payload.html },
+          ord: 0,
+          side: 'question',
+        });
+        setSafeHtml(host, rendered);
+        // Give handlers that need a tick (image load failures) a chance.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        if (window.__xss) fired.push(payload.name);
+        if (/on[a-z]+\s*=/i.test(host.innerHTML)) survived.push(payload.name);
+        host.remove();
+      }
+      delete window.__xss;
+      return { fired, survived, total: XSS_PAYLOADS.length };
+    });
+
+    check(
+      'no payload executes through the sanitiser',
+      xss.fired.length === 0,
+      `${xss.fired.length}/${xss.total} fired: ${xss.fired.join(', ')}`,
+    );
+    check(
+      'no event handler attribute survives sanitising',
+      xss.survived.length === 0,
+      xss.survived.join(', '),
+    );
+
+    // Legitimate formatting must still come through, or the fix is a
+    // regression dressed up as a security improvement.
+    const kept = await page.evaluate(async () => {
+      const { sanitiseToString } = await import('/dist/ui/safe-html.js');
+      return {
+        bold: sanitiseToString('<b>bold</b>'),
+        nested: sanitiseToString('<p>a <em>b</em> <code>c</code></p>'),
+        image: sanitiseToString('<img src="https://example.com/a.png" alt="x">'),
+        table: sanitiseToString('<table><tr><td colspan="2">cell</td></tr></table>'),
+        ruby: sanitiseToString('<ruby>漢<rt>kan</rt></ruby>'),
+        media: sanitiseToString('<img data-media-src="abc" alt="a">'),
+        unknown: sanitiseToString('<marquee>text survives</marquee>'),
+        link: sanitiseToString('<a href="https://example.com">link</a>'),
+        badLink: sanitiseToString('<a href="javascript:alert(1)">link</a>'),
+      };
+    });
+    check('bold survives', kept.bold === '<b>bold</b>', kept.bold);
+    check('nested formatting survives', kept.nested.includes('<em>b</em>') && kept.nested.includes('<code>c</code>'), kept.nested);
+    check('remote images survive', kept.image.includes('src="https://example.com/a.png"'), kept.image);
+    check('tables survive with colspan', kept.table.includes('colspan="2"'), kept.table);
+    check('ruby annotations survive', kept.ruby.includes('<rt>kan</rt>'), kept.ruby);
+    check('the media attribute survives', kept.media.includes('data-media-src="abc"'), kept.media);
+    check('an unknown element is unwrapped, keeping its text', kept.unknown === 'text survives', kept.unknown);
+    check('safe links survive and are given rel', kept.link.includes('rel="noopener noreferrer nofollow"'), kept.link);
+    check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
+
+    // --- Content-Security-Policy ---
+    const csp = await page.evaluate(() => {
+      const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      return meta ? meta.getAttribute('content') : null;
+    });
+    check('a Content-Security-Policy is present', typeof csp === 'string' && csp.length > 0);
+    check('the policy forbids inline script', Boolean(csp && !/script-src[^;]*unsafe-inline/.test(csp)), String(csp).slice(0, 80));
+    check('the policy blocks objects and base hijacking', Boolean(csp && /object-src 'none'/.test(csp) && /base-uri 'none'/.test(csp)));
+
+
+
     // --- iOS ---
     // Safari clears script-writable storage for sites the user has not
     // returned to, and exempts Home Screen apps. There is no API for this,

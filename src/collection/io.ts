@@ -7,7 +7,7 @@
  */
 
 import { generateOrds, makeCard } from '../domain/cards.js';
-import { fromBase64, toBase64 } from '../domain/media.js';
+import { fromBase64, mediaKind, toBase64 } from '../domain/media.js';
 import { makeDeck } from '../domain/defaults.js';
 import { newId } from '../domain/id.js';
 import { stripHtml } from '../domain/render.js';
@@ -93,6 +93,30 @@ export async function exportCollection(db: Db): Promise<CollectionExport> {
   };
 }
 
+/**
+ * The path to the first number in `value` that is not finite, or null.
+ *
+ * JSON.parse turns `1e309` into Infinity and accepts `-0`; neither is
+ * caught by a plain typeof check.
+ */
+function findNonFiniteNumber(value: unknown, path = ''): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? null : path || 'a top-level value';
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findNonFiniteNumber(item, `${path}[${index}]`);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value === 'object' && value !== null) {
+    for (const [key, item] of Object.entries(value)) {
+      const found = findNonFiniteNumber(item, path ? `${path}.${key}` : key);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function encodeMedia(file: MediaFile): MediaFileExport {
   return {
     id: file.id,
@@ -105,13 +129,30 @@ function encodeMedia(file: MediaFile): MediaFileExport {
   };
 }
 
+/**
+ * A media type we are willing to store, or an inert fallback.
+ *
+ * The MIME type in a backup is entirely attacker-controlled and is later
+ * handed to `new Blob([...], { type })`, whose object URL something might
+ * one day navigate to or frame. `text/html` there would be a stored XSS
+ * waiting for a careless sink. Anything not recognisable as an image or a
+ * sound becomes application/octet-stream, which no sink will interpret.
+ */
+function safeMime(mime: unknown): string {
+  if (typeof mime !== 'string') return 'application/octet-stream';
+  return mediaKind(mime) ? mime.split(';')[0]!.trim().toLowerCase() : 'application/octet-stream';
+}
+
 function decodeMedia(file: MediaFileExport): MediaFile {
+  const data = fromBase64(file.data);
   return {
     id: file.id,
-    filename: file.filename,
-    mime: file.mime,
-    size: file.size,
-    data: fromBase64(file.data),
+    filename: typeof file.filename === 'string' ? file.filename : 'file',
+    mime: safeMime(file.mime),
+    // Trust the bytes, not the claim: a size that disagrees with the
+    // payload would make every later total wrong.
+    size: data.byteLength,
+    data,
     created: file.created,
     modified: file.modified,
   };
@@ -131,6 +172,43 @@ export interface ImportSummary {
 
 export type ImportMode = 'replace' | 'merge';
 
+export interface ImportProgress {
+  /** Which store is being written. */
+  store: string;
+  /** Human-readable name for that store. */
+  label: string;
+  /** How many records this step writes. */
+  records: number;
+  /** Steps finished before this one. */
+  step: number;
+  /** Total steps. */
+  steps: number;
+}
+
+/**
+ * Progress is reported once per store, not once per chunk.
+ *
+ * Each store is written in a single IndexedDB transaction, so reporting at
+ * that granularity costs nothing. Splitting the work finer to get a
+ * smoother bar measured about 50% slower overall — 17 seconds became 26 —
+ * whatever the chunk size, because the cost is in committing transactions
+ * rather than in the number of chunks. A coarse honest bar beats a smooth
+ * one that makes the wait half again as long.
+ */
+export interface ImportOptions {
+  onProgress?: (progress: ImportProgress) => void;
+}
+
+const STORE_LABELS: Record<string, string> = {
+  deckConfigs: 'deck presets',
+  decks: 'decks',
+  noteTypes: 'note types',
+  notes: 'notes',
+  cards: 'cards',
+  reviewLogs: 'review history',
+  media: 'images and sounds',
+};
+
 /**
  * Restore a backup.
  *
@@ -142,10 +220,24 @@ export async function importCollection(
   db: Db,
   data: unknown,
   mode: ImportMode = 'replace',
+  options: ImportOptions = {},
 ): Promise<ImportSummary> {
   const parsed = validateExport(data);
 
   if (mode === 'replace') await db.clear();
+
+  const steps = Object.keys(STORE_LABELS).length;
+  let step = 0;
+  const report = (store: string, records: number): void => {
+    options.onProgress?.({
+      store,
+      label: STORE_LABELS[store] ?? store,
+      records,
+      step,
+      steps,
+    });
+    step += 1;
+  };
 
   const summary: ImportSummary = {
     decks: 0,
@@ -169,6 +261,10 @@ export async function importCollection(
       incoming = items.filter((item) => !existing.has(item.id));
       summary.skipped += items.length - incoming.length;
     }
+    report(String(key), incoming.length);
+    // Yield so the progress just reported actually paints before the
+    // transaction begins; without this the bar only moves once it is over.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await store.putMany(incoming);
     summary[key] = incoming.length;
   };
@@ -239,6 +335,23 @@ export function validateExport(data: unknown): CollectionExport {
 
   if (parsed.notes.length > 0 && parsed.noteTypes.length === 0) {
     throw new Error('Backup contains notes but no note types.');
+  }
+
+  // Every number in the file has to be a real, finite number.
+  //
+  // A backup is an untrusted file even when the user chose it, and the
+  // numbers in it are load-bearing: timestamps decide which version of a
+  // record wins a conflict, and a record carrying `1e309` (which JSON
+  // parses as Infinity) would beat every genuine edit forever. Ratings and
+  // elapsed days feed the scheduler and would poison a card's schedule.
+  for (const [name, list] of Object.entries(parsed)) {
+    if (!Array.isArray(list)) continue;
+    for (const record of list) {
+      const bad = findNonFiniteNumber(record);
+      if (bad) {
+        throw new Error(`Backup contains an impossible number in "${name}" (${bad}).`);
+      }
+    }
   }
 
   for (const file of parsed.media) {

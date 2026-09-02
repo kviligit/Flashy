@@ -18,7 +18,7 @@ import {
 } from './types.js';
 
 export const DB_NAME = 'flashy';
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 function toKeyRange(range: Range): IDBKeyRange | null {
   const { lower, upper, lowerOpen = false, upperOpen = false } = range;
@@ -191,8 +191,28 @@ function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null)
   }
 
   if (oldVersion < 4) {
-    // Per-peer sync watermarks.
+    // Make INDEXES authoritative by dropping anything a store still
+    // carries that is no longer declared. An index costs roughly 30% of
+    // the write time of its store, so a dead one left in place is a tax
+    // every existing collection would go on paying.
+    for (const name of STORE_NAMES) dropUndeclaredIndexes(name);
+  }
+
+  if (oldVersion < 5) {
+    // Per-peer sync watermarks. This was version 4 while the sync work was
+    // on its own branch, but main shipped a different version 4 first, so
+    // it moves up rather than colliding with a migration users have run.
     ensureStore('syncState');
+  }
+
+  /** Remove indexes the store has but INDEXES no longer lists. */
+  function dropUndeclaredIndexes(name: StoreName): void {
+    if (!tx || !db.objectStoreNames.contains(name)) return;
+    const store = tx.objectStore(name);
+    const declared = new Set<string>(INDEXES[name]);
+    for (const existing of Array.from(store.indexNames)) {
+      if (!declared.has(existing)) store.deleteIndex(existing);
+    }
   }
 }
 

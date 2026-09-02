@@ -6,6 +6,43 @@
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0e1116" />
     <title>Flashy</title>
+    <!--
+      GitHub Pages cannot set response headers, so the policy has to travel
+      in the document. Defence in depth behind the sanitiser: if HTML
+      injection ever gets through again, an inline handler still will not
+      run.
+
+      - script-src 'self': every script is an external module from this
+        origin. There are no inline scripts, so no 'unsafe-inline'.
+      - style-src needs 'unsafe-inline' for the style attributes the UI
+        helpers set; styles are not a script vector here.
+      - img-src and media-src allow https: because decks legitimately embed
+        remote pictures and audio. That does let a hostile deck learn that a
+        card was viewed, which is a privacy leak rather than code execution;
+        blob: covers attached files, which are stored locally.
+      - connect-src 'self' will need widening to wss: when relay sync lands.
+
+      frame-ancestors is deliberately absent: it is ignored when delivered
+      in a meta element, so including it only produces a console warning.
+      Clickjacking protection would need a response header, which GitHub
+      Pages cannot send.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' blob: data: https:;
+               media-src 'self' blob: data: https:;
+               font-src 'self';
+               connect-src 'self';
+               manifest-src 'self';
+               worker-src 'self';
+               base-uri 'none';
+               form-action 'none';
+               object-src 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
     <meta name="description" content="A local-first spaced-repetition flashcard app using FSRS-6." />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
