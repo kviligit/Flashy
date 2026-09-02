@@ -18,6 +18,8 @@
 >   again at the point the object URL is created.
 > - **Unvalidated numbers in a backup** (part of Finding 4's
 >   reachable-today path) — import now refuses any non-finite number.
+> - **Finding 8 (unbounded import work)** — an export now declares at most
+>   500k records and 512MB of media, checked before anything is decoded.
 >
 > Outstanding:
 >
@@ -26,7 +28,10 @@
 > - **Finding 4 (merge layer trusts a peer)** — the remaining parts live on
 >   `claude/nostr-sync` and are being addressed there. Nothing in the
 >   shipped app reaches them: there is no transport.
-> - **Findings 7-8 (no lockfile in CI, unbounded import work)** — open.
+> - **Finding 7 (no lockfile in CI)** — partly. The compiler version is now
+>   pinned exactly in `package.json` and in the workflow. A real lockfile
+>   still cannot be generated here, so this stays partly open until the
+>   registry is reachable and the install becomes `npm ci`.
 
 ---
 
