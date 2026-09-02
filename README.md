@@ -10,7 +10,7 @@
 > **What that is worth.** The FSRS implementation is ported from the
 > reference Rust implementation and pinned by two golden vectors taken from
 > that project's own test suite, so the algorithm is not improvised. There
-> are 230 unit tests and 57 end-to-end checks against a real browser, and
+> are 408 unit tests and 93 end-to-end checks against a real browser, and
 > the storage layer is verified against both of its backends. Several real
 > bugs were caught that way and are recorded in the commit history.
 >
@@ -20,6 +20,13 @@
 > audited the scheduling logic, the migration path, or the sanitiser. It
 > has never run on real phone hardware. It has never been used by anyone
 > for actual studying.
+>
+> Two independent audits have been run — by a separate agent, cold, told to
+> disprove rather than confirm. The first found a critical stored-XSS hole
+> the tests had missed entirely; the second found three critical faults in
+> the sync layer, one of which meant the feature could not work at all.
+> Both reports are kept verbatim in `docs/`, findings and all. That is a
+> real check, and it is still not a human reading the code.
 >
 > **If you are going to rely on it**, keep backups (Import & export writes a
 > complete one), and read `src/fsrs/` and `src/scheduler/` yourself before
@@ -148,14 +155,6 @@ derived from the notes whenever it is asked, and **Import & export → Images
 to any more. Deleting a note deliberately does *not* delete its files —
 another note may share them.
 
-### Syncing between devices
-
-Not implemented, and deliberately not designed. What *is* in place is the
-groundwork that cannot be retrofitted: deletions leave tombstones, every
-record carries an indexed version, and there is a change feed
-(`changesSince`) that a transport can attach to. See
-[docs/sync.md](docs/sync.md) for the seam and the decisions behind it.
-
 ## Sync across devices (optional, off by default)
 
 Two devices holding the same collection can be kept in step through
@@ -232,8 +231,8 @@ to run on fewer than 100 dated reviews.
 ## Testing
 
 ```
-npm test    230 unit tests
-npm run e2e  57 end-to-end checks in a real browser
+npm test    408 unit tests
+npm run e2e  93 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:
@@ -251,10 +250,23 @@ Some of the load-bearing ones:
   divergence.
 - **CSV and backup round-trips**, including quoted commas, embedded
   newlines and doubled quotes.
-- **A schema migration test** that builds a v1 database by hand, opens it
-  with the current code, and checks the data survived and the new indexes
+- **Schema migration tests** that build old databases by hand, open them
+  with the current code, and check the data survived and the new indexes
   and stores are there. This is the one path that can silently destroy
-  someone's review history.
+  someone's review history. One goes from v1, which exercises the whole
+  chain; the other from v4, which is the upgrade an existing user will
+  actually run — a migration that works from the beginning of history and
+  not from the last released version is the one that loses collections.
+- **An adversarial relay**, in process, speaking the real NIP-01 protocol
+  and misbehaving on demand: tampering with events, answering filters with
+  things nobody asked for, repeating one event forever, acknowledging a
+  publish and storing nothing, and never sending EOSE. Writing those found
+  a real bug where a relay's EOSE resolved a subscription while its events
+  were still being signature-verified, so every query returned empty.
+- **A regression test per security finding**, in `src/sync/audit-regressions.test.ts`.
+  Each one of those passed review, passed the rest of the suite, and was
+  still wrong; keeping them together is a record of what the suite used to
+  be blind to.
 - **iOS checks** in an emulated iPhone, covering both a Safari tab and an
   installed app: the install advice appears in one and not the other, the
   storage report matches, dismissal sticks, and the answer buttons stay
