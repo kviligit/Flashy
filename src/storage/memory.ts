@@ -119,6 +119,7 @@ export class MemoryDb implements Db {
   readonly reviewLogs = new MemoryStore<never>() as Db['reviewLogs'];
   readonly meta = new MemoryStore<never>() as Db['meta'];
   readonly media = new MemoryStore<never>() as Db['media'];
+  readonly syncState = new MemoryStore<never>() as Db['syncState'];
   readonly deletions = new MemoryStore<never>() as Db['deletions'];
 
   async clear(): Promise<void> {

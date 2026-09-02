@@ -280,4 +280,22 @@ export interface MediaFile extends Entity {
   modified: number;
 }
 
-export const SCHEMA_VERSION = 3;
+/**
+ * What we know about one sync peer.
+ *
+ * Deliberately not in CONTENT_STORES: watermarks are about *this* device's
+ * conversation with a peer, and synchronising them would be circular.
+ */
+export interface SyncState extends Entity {
+  /** Stable identifier for the peer — a relay URL, a public key, a label. */
+  id: string;
+  /** Their clock value at the end of the last successful pull. */
+  lastPulledAt: number;
+  /** Our clock value at the end of the last successful push. */
+  lastPushedAt: number;
+  /** When we last completed a round with them. */
+  lastSyncedAt: number;
+  modified: number;
+}
+
+export const SCHEMA_VERSION = 4;

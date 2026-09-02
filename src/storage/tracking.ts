@@ -131,6 +131,7 @@ export function withChangeTracking(db: Db, options: TrackingOptions = {}): Db {
     reviewLogs: wrap('reviewLogs'),
     media: wrap('media'),
     meta: db.meta,
+    syncState: db.syncState,
     deletions: db.deletions,
     clear: () => db.clear(),
     close: () => db.close(),

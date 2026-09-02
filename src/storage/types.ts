@@ -15,6 +15,7 @@ import type {
   Note,
   NoteType,
   ReviewLog,
+  SyncState,
 } from '../domain/types.js';
 
 /** A key an index can be queried by. */
@@ -70,6 +71,8 @@ export interface Db {
   readonly reviewLogs: Store<ReviewLog>;
   readonly meta: Store<Meta>;
   readonly media: Store<MediaFile>;
+  /** Per-peer sync watermarks. Local to this device; never synchronised. */
+  readonly syncState: Store<SyncState>;
   /** Tombstones. Written by the storage layer, not by callers. */
   readonly deletions: Store<Deletion>;
   /** Wipe every store. */
@@ -90,6 +93,7 @@ export const INDEXES = {
   reviewLogs: ['cardId', 'reviewedAt'],
   meta: [],
   media: ['filename', 'modified'],
+  syncState: ['lastSyncedAt'],
   deletions: ['store', 'deletedAt'],
 } as const satisfies Record<string, readonly string[]>;
 

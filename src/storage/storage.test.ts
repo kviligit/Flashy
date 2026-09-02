@@ -45,6 +45,7 @@ test('every store declares its indexes', () => {
     'noteTypes',
     'notes',
     'reviewLogs',
+    'syncState',
   ]);
   // The queue depends on these three; losing one would silently break it.
   assert.ok(INDEXES.cards.includes('due'));
