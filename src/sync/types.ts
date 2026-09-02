@@ -38,6 +38,14 @@ export interface MergeCounts {
   deletionsRejected: number;
   /** Cards whose scheduling state was recomputed from merged history. */
   cardsReplayed: number;
+  /**
+   * Cards whose replay threw and was skipped.
+   *
+   * Never expected. It is counted rather than thrown because one bad card
+   * must not abort a merge — a wrong schedule on one card is recoverable,
+   * a device that can no longer complete a round is not.
+   */
+  replayFailures: number;
 }
 
 export interface SyncResult {
@@ -59,5 +67,6 @@ export function emptyCounts(): MergeCounts {
     rejected: 0,
     deletionsRejected: 0,
     cardsReplayed: 0,
+    replayFailures: 0,
   };
 }

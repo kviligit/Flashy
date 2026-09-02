@@ -121,6 +121,7 @@ test('describeOutcome says something a person can read', () => {
     rejected: 0,
     deletionsRejected: 0,
     cardsReplayed: 0,
+    replayFailures: 0,
   };
   const base = {
     peerId: 'p',

@@ -20,7 +20,11 @@
         remote pictures and audio. That does let a hostile deck learn that a
         card was viewed, which is a privacy leak rather than code execution;
         blob: covers attached files, which are stored locally.
-      - connect-src 'self' will need widening to wss: when relay sync lands.
+      - connect-src includes wss: because sync talks to nostr relays the user
+        chooses at runtime. A meta-tag policy cannot enumerate them, and a
+        narrower list would have to be baked in at build time, which would
+        stop anyone running their own relay. wss: only permits outbound
+        WebSockets over TLS; it grants no way to fetch or execute anything.
 
       frame-ancestors is deliberately absent: it is ignored when delivered
       in a meta element, so including it only produces a console warning.
@@ -35,7 +39,7 @@
                img-src 'self' blob: data: https:;
                media-src 'self' blob: data: https:;
                font-src 'self';
-               connect-src 'self';
+               connect-src 'self' wss:;
                manifest-src 'self';
                worker-src 'self';
                base-uri 'none';

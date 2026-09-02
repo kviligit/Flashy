@@ -47,7 +47,8 @@
  */
 
 import type { ChangeSet } from '../storage/index.js';
-import { tagValue, type NostrEvent, type UnsignedEvent } from '../nostr/index.js';
+import { MAX_CLOCK_SKEW_MS } from './merge.js';
+import { tagValue, toPublicKeyHex, type NostrEvent, type UnsignedEvent } from '../nostr/index.js';
 import type { Filter, Relay } from '../nostr/relay.js';
 import type { Signer } from '../nostr/signer.js';
 import type { SyncTransport } from './types.js';
@@ -75,6 +76,25 @@ export const APP_NAME = 'flashy-sync-v1';
  */
 export const LOOKBACK_SECONDS = 24 * 60 * 60;
 
+/**
+ * Records one round will take before stopping and asking to be run again.
+ *
+ * Chosen against the collection sizes the benchmarks cover rather than a
+ * round number: 20,000 records is a large collection's worth of changes,
+ * and holding that many decoded upserts is tens of megabytes, not hundreds.
+ */
+export const DEFAULT_MAX_RECORDS_PER_ROUND = 20_000;
+
+/**
+ * How many of a push's events to read back afterwards.
+ *
+ * A sample, not the lot: the point is to catch a relay that stored nothing
+ * at all, and one query is enough for that. Reading back every event of a
+ * large push would double the round's cost to re-confirm what the first
+ * few already established.
+ */
+export const CONFIRM_SAMPLE = 20;
+
 export interface NostrTransportOptions {
   /**
    * Who holds the key. An extension signer never lets the secret into this
@@ -92,6 +112,14 @@ export interface NostrTransportOptions {
   peerId?: string;
   /** Chunk size, exposed so tests can force chunking without huge data. */
   maxChunkBytes?: number;
+  /**
+   * Most records one round will take.
+   *
+   * A relay holding a large history can answer a first sync with far more
+   * than a phone can hold at once. Past this the round stops early and
+   * declines to advance its watermark, so the remainder arrives next time.
+   */
+  maxRecordsPerRound?: number;
   /** Clock, injected for tests. */
   now?: () => number;
   /** Called for records too large to send, and for per-relay failures. */
@@ -101,7 +129,9 @@ export interface NostrTransportOptions {
 export type TransportProblem =
   | { kind: 'oversized'; record: Oversized }
   | { kind: 'relay-failed'; url: string; error: Error }
-  | { kind: 'undecodable'; eventId: string; reason: string };
+  | { kind: 'undecodable'; eventId: string; reason: string }
+  /** Something a relay said about itself. Diagnostic, not an event. */
+  | { kind: 'relay-notice'; url: string; message: string };
 
 /**
  * A transport is bound to one key, one device and a set of relays.
@@ -117,11 +147,20 @@ export class NostrTransport implements SyncTransport {
   private readonly deviceId: string;
   private readonly relays: Relay[];
   private readonly maxChunkBytes: number;
+  private readonly maxRecordsPerRound: number;
   private readonly now: () => number;
   private readonly onProblem: (problem: TransportProblem) => void;
 
   /** Records left behind on the most recent push, for the caller to show. */
   lastOversized: Oversized[] = [];
+  /**
+   * True when the last pull did not see everything it asked for.
+   *
+   * The engine still stores a watermark, so this is how a caller learns
+   * that "nothing came back" meant "nothing was reachable" rather than
+   * "nothing has changed".
+   */
+  incomplete = false;
 
   constructor(options: NostrTransportOptions) {
     this.signer = options.signer;
@@ -129,6 +168,7 @@ export class NostrTransport implements SyncTransport {
     this.deviceId = options.deviceId;
     this.relays = options.relays;
     this.maxChunkBytes = options.maxChunkBytes ?? MAX_CHUNK_BYTES;
+    this.maxRecordsPerRound = options.maxRecordsPerRound ?? DEFAULT_MAX_RECORDS_PER_ROUND;
     this.now = options.now ?? (() => Date.now());
     this.onProblem = options.onProblem ?? (() => {});
     // Watermarks are per peer, and the peer here is the account, not any
@@ -153,11 +193,13 @@ export class NostrTransport implements SyncTransport {
       since: Math.max(0, Math.floor(since / 1000) - LOOKBACK_SECONDS),
     };
 
+    let everyRelayAnswered = this.relays.length > 0;
     const results = await Promise.all(
       this.relays.map(async (relay) => {
         try {
           return await relay.query([filter]);
         } catch (error) {
+          everyRelayAnswered = false;
           this.onProblem({
             kind: 'relay-failed',
             url: relay.url,
@@ -173,10 +215,21 @@ export class NostrTransport implements SyncTransport {
 
     const merged: ChangeSet = { since, until: since, upserts: [], deletions: [] };
     let highest = since;
+    let records = 0;
+    let truncated = false;
+
+    // The relay window is widened by a day to cover skew and the
+    // seconds/milliseconds rounding, and the client-side cut has to be
+    // widened by the same amount or it throws away everything the window
+    // just went to the trouble of re-fetching. Re-applying a change is a
+    // no-op by construction; losing one is permanent, so the asymmetry
+    // decides which way to err.
+    const cut = since - LOOKBACK_SECONDS * 1000;
 
     for (const event of byId.values()) {
-      // Our own echo. The relay was asked not to send it; relays are not
-      // required to be obedient, so it is checked again here.
+      // Our own echo. Nothing in the filter excludes it — two devices share
+      // one key, so the author field cannot tell them apart — so this is
+      // where it is actually dropped, not at the relay.
       if (tagValue(event, DEVICE_TAG) === this.deviceId) continue;
 
       let chunk: ChangeSet & { device: string };
@@ -196,9 +249,16 @@ export class NostrTransport implements SyncTransport {
       }
 
       if (chunk.device === this.deviceId) continue;
-      // The window is widened to cover skew, so the precise cut is made
-      // here, on the millisecond watermarks the change feed actually uses.
-      if (chunk.until <= since) continue;
+      if (chunk.until <= cut) continue;
+
+      // A round has to fit in memory on a phone. Past the budget we stop
+      // taking records and refuse to advance the watermark, so the rest
+      // arrives on the next round rather than being lost.
+      if (records + chunk.upserts.length + chunk.deletions.length > this.maxRecordsPerRound) {
+        truncated = true;
+        continue;
+      }
+      records += chunk.upserts.length + chunk.deletions.length;
 
       merged.upserts.push(...chunk.upserts);
       merged.deletions.push(...chunk.deletions);
@@ -208,7 +268,25 @@ export class NostrTransport implements SyncTransport {
     // Applying in version order keeps the merge deterministic regardless of
     // the order relays happened to answer in.
     merged.upserts.sort((a, b) => a.version - b.version);
-    merged.until = highest;
+
+    // The watermark is a claim that everything before it has been seen, so
+    // it may only move when that is actually true. A relay that timed out,
+    // dropped the socket, or was cut short mid-answer leaves the round
+    // incomplete, and advancing past it would put the events it still owes
+    // us permanently below the cut.
+    const complete = everyRelayAnswered && !truncated;
+    if (!complete) {
+      this.incomplete = true;
+      merged.until = since;
+      return merged;
+    }
+    this.incomplete = false;
+
+    // A peer's clock is a peer's claim. Believing one that says next
+    // century would deafen this device for ever, and there is no UI to
+    // recover from that — so a timestamp beyond the skew allowance moves
+    // the watermark no further than now.
+    merged.until = Math.min(highest, this.now() + MAX_CLOCK_SKEW_MS);
     return merged;
   }
 
@@ -226,6 +304,7 @@ export class NostrTransport implements SyncTransport {
     if (chunks.length === 0) return;
 
     const createdAt = Math.floor(this.now() / 1000);
+    const published: string[] = [];
 
     for (const chunk of chunks) {
       const content = await this.signer.encrypt(this.pubkey, JSON.stringify(chunk));
@@ -260,6 +339,48 @@ export class NostrTransport implements SyncTransport {
         const why = failures.map((error) => error.message).join('; ') || 'no relays configured';
         throw new Error(`no relay accepted chunk ${chunk.seq + 1}/${chunk.of}: ${why}`);
       }
+      published.push(event.id);
+    }
+
+    // An OK is a promise, not a receipt. Relays prune, run out of disk, and
+    // drop kinds they do not recognise after accepting them — and the
+    // engine advances its push watermark on the strength of this returning,
+    // after which `changesSince` will never offer those records again. So
+    // the last thing a push does is ask for what it just wrote back.
+    await this.confirmPublished(published);
+  }
+
+  /**
+   * Check that at least one relay actually kept what we just sent.
+   *
+   * Deliberately not per-event: a relay may legitimately not return every
+   * id in one query, and failing a whole round over that would make sync
+   * flap. What this catches is the case that matters — a relay that
+   * acknowledges everything and stores nothing, which silently turns the
+   * backup this feature exists to provide into an empty one.
+   */
+  private async confirmPublished(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+
+    const wanted = ids.slice(-CONFIRM_SAMPLE);
+    const found = new Set<string>();
+    for (const relay of this.relays) {
+      try {
+        for (const event of await relay.query([{ ids: wanted }])) found.add(event.id);
+      } catch (error) {
+        this.onProblem({
+          kind: 'relay-failed',
+          url: relay.url,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      }
+    }
+
+    if (found.size === 0) {
+      throw new Error(
+        'the relays acknowledged this push but none of it can be read back; ' +
+          'treating it as not sent rather than losing it',
+      );
     }
   }
 }
@@ -273,6 +394,13 @@ export class NostrTransport implements SyncTransport {
 export async function openTransport(
   options: Omit<NostrTransportOptions, 'pubkey'>,
 ): Promise<NostrTransport> {
-  const pubkey = await options.signer.getPublicKey();
+  const raw = await options.signer.getPublicKey();
+  // Extensions are third-party code and some return an npub. Passing that
+  // through unchecked yields a transport that connects, queries an author
+  // nobody has ever published under, finds nothing, and reports success.
+  const pubkey = toPublicKeyHex(raw);
+  if (!pubkey) {
+    throw new Error(`the signer returned "${raw}", which is not a public key`);
+  }
   return new NostrTransport({ ...options, pubkey });
 }

@@ -29,6 +29,7 @@ import {
   type SyncAccount,
 } from '../../sync/index.js';
 import { describeOutcome, runSync } from '../../sync/run.js';
+import { resetSyncState } from '../../sync/engine.js';
 import type { TransportProblem } from '../../sync/nostr-transport.js';
 
 export function syncPage(ctx: AppContext): HTMLElement {
@@ -67,7 +68,11 @@ function warningCard(): HTMLElement {
     }),
     el('p', {
       text:
-        'A relay still learns that your key syncs, from how many devices, how often, and roughly how much. That is inherent to using relays and nothing here hides it.',
+        'The fact that you sync is public. Relays index events by author, so anyone who knows your public key can ask any relay when you studied, from how many devices, and roughly how much changed each time — not just the relay operator. The contents stay unreadable; the pattern does not.',
+    }),
+    el('p', {
+      text:
+        'For that reason, prefer a key you use only for this. Reusing the key from your nostr profile ties a permanent, timestamped record of your study habits to your public identity.',
     }),
     el('p.faint', {
       text:
@@ -371,6 +376,17 @@ function runCard(
     status,
     detail,
     el('label.row', {}, auto, el('span', { text: 'Sync automatically after studying' })),
+    el(
+      'div.row',
+      {},
+      button('Re-read everything', () => void resetWatermarks(ctx, status), {
+        'data-action': 'reset-watermarks',
+      }),
+      el('div.spacer', {}),
+    ),
+    el('p.faint', {
+      text: 'Forgets what this device thinks it has already seen, so the next sync reads the full history again. Use it if a device seems stuck, or is missing something the others have.',
+    }),
     el('p.faint', {
       text: 'Every device that uses this key and shares a relay will end up with the same cards and the same review history. Where two devices edited the same card, the later edit wins; answers are never lost, because they are only ever added.',
     }),
@@ -401,6 +417,16 @@ function problemNotes(problems: readonly TransportProblem[]): HTMLElement[] {
     if (problem.kind !== 'relay-failed') continue;
     notes.push(el('p.faint', { text: `${problem.url}: ${problem.error.message}` }));
   }
+
+  // What a relay says about itself — "discarded an event that matched no
+  // filter", "oversized message discarded" — is the earliest sign that a
+  // relay is misbehaving, and it used to be collected and then filtered
+  // out of this list by a mismatched field name.
+  const notices = problems.filter((problem) => problem.kind === 'relay-notice');
+  for (const problem of notices.slice(0, 5)) {
+    if (problem.kind !== 'relay-notice') continue;
+    notes.push(el('p.faint', { text: `${problem.url}: ${problem.message}` }));
+  }
   return notes;
 }
 
@@ -411,4 +437,44 @@ async function copy(text: string, message: string): Promise<void> {
   } catch {
     toast('This browser would not let the page copy. Select the text instead.', 'error');
   }
+}
+
+
+/**
+ * Forget the watermarks and read everything again.
+ *
+ * A watermark is this device's claim about what it has already seen, and
+ * it is derived partly from timestamps other devices supply. A peer with a
+ * badly wrong clock — or one being deliberately unhelpful — can push that
+ * claim forward past everything real, and the device then reports
+ * "already up to date" for ever with no way to tell it otherwise.
+ *
+ * The read path now clamps and refuses implausible timestamps, so that
+ * should not happen. This exists because "should not happen" is not a
+ * recovery plan, and re-reading is cheap: merging is idempotent, so the
+ * worst case is bandwidth.
+ */
+async function resetWatermarks(ctx: AppContext, status: HTMLElement): Promise<void> {
+  const account = readAccount();
+  if (!account.publicKey) return;
+
+  const ok = await confirmModal(
+    'Re-read everything?',
+    el(
+      'div.col',
+      {},
+      el('p', {
+        text: 'The next sync will read your whole history from the relays instead of only what is new. Nothing is deleted and nothing is sent twice — applying a change again does nothing.',
+      }),
+      el('p.faint', { text: 'It will take longer than a normal sync.' }),
+    ),
+    'Re-read',
+  );
+  if (!ok) return;
+
+  for (const state of await ctx.db.syncState.getAll()) {
+    await resetSyncState(ctx.db, state.id);
+  }
+  status.textContent = 'Watermarks cleared. The next sync will read everything.';
+  toast('This device will re-read its full history on the next sync.', 'success');
 }

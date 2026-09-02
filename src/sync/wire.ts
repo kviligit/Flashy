@@ -26,7 +26,16 @@ import type { Deletion, Entity } from '../domain/types.js';
 import { CONTENT_STORES, type ContentStore } from '../storage/index.js';
 import type { ChangeSet, Upsert } from '../storage/index.js';
 
-/** NIP-44 v2 refuses a plaintext larger than this. It is a hard limit. */
+/**
+ * The largest plaintext this app's NIP-44 implementation handles.
+ *
+ * Not the spec's limit: NIP-44 v2 allows up to 4294967295 bytes, using a
+ * six-byte length prefix above 65536. This implementation only writes the
+ * two-byte form, so it can neither produce nor read anything larger. That
+ * is a compatibility limit of ours, not a property of the protocol, and it
+ * is written down as such so nobody later "fixes" a chunk size against a
+ * number that was never in the specification.
+ */
 export const MAX_PLAINTEXT_BYTES = 65_535;
 
 /**
@@ -148,6 +157,33 @@ function byteLength(value: unknown): number {
 }
 
 /**
+ * A lower bound on a record's encoded size, computed without encoding it.
+ *
+ * Only binary is measured, because binary is the only thing that gets
+ * large: base64 turns three bytes into four, so the raw length is already
+ * a lower bound on what the encoded record will cost. Text fields are
+ * ignored here and caught by the exact check afterwards.
+ */
+function rawByteEstimate(value: unknown, depth = 0): number {
+  if (depth > 8) return 0;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (Array.isArray(value)) {
+    let total = 0;
+    for (const item of value) total += rawByteEstimate(item, depth + 1);
+    return total;
+  }
+  if (value && typeof value === 'object') {
+    let total = 0;
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      total += rawByteEstimate(item, depth + 1);
+    }
+    return total;
+  }
+  return 0;
+}
+
+/**
  * Cut a change set into independently applicable chunks.
  *
  * Deletions are packed first: they are tiny, and a tombstone that arrives
@@ -185,6 +221,17 @@ export function chunkChangeSet(
   }
 
   for (const upsert of changes.upserts) {
+    // Cheap rejection first. Base64-encoding a 32MB image to discover it is
+    // 43MB and therefore too large costs three seconds of frozen UI thread,
+    // and the raw byte count already answers the question: base64 only ever
+    // grows a record, so anything whose binary alone exceeds the budget
+    // cannot fit however it is encoded.
+    const raw = rawByteEstimate(upsert.record);
+    if (raw > budget) {
+      oversized.push({ store: upsert.store, id: String(upsert.record.id), bytes: raw });
+      continue;
+    }
+
     const wire: WireUpsert = {
       store: upsert.store,
       version: upsert.version,
@@ -247,8 +294,8 @@ export function decodeChangeSet(value: unknown): ChangeSet & { device: string } 
     throw new Error(`unsupported wire version ${String(wire['v'])}`);
   }
   const device = typeof wire['device'] === 'string' ? wire['device'] : '';
-  const since = finite(wire['since'], 'since');
-  const until = finite(wire['until'], 'until');
+  const since = timestamp(wire['since'], 'since');
+  const until = timestamp(wire['until'], 'until');
 
   const upserts: Upsert[] = [];
   for (const raw of expectArray(wire['upserts'], 'upserts')) {
@@ -307,4 +354,24 @@ function finite(value: unknown, name: string): number {
     throw new Error(`${name} is not a finite number`);
   }
   return value;
+}
+
+/**
+ * The year 2000, and roughly the year 2500, in epoch milliseconds.
+ *
+ * A watermark is a number this device will later compare against its own
+ * clock, so a peer that sends 1e308 is not sending a timestamp — it is
+ * setting a bound nothing will ever exceed. The transport clamps as well;
+ * this refuses the payload outright, because a value outside these bounds
+ * is not a clock reading under any interpretation.
+ */
+export const MIN_TIMESTAMP_MS = 946_684_800_000;
+export const MAX_TIMESTAMP_MS = 16_725_225_600_000;
+
+function timestamp(value: unknown, name: string): number {
+  const number = finite(value, name);
+  if (number < 0 || number > MAX_TIMESTAMP_MS) {
+    throw new Error(`${name} is not a plausible timestamp`);
+  }
+  return number;
 }

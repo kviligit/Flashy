@@ -651,6 +651,14 @@ async function run(playwright) {
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
     // --- Content-Security-Policy ---
+    // Collected from the console, because a CSP refusal is not an exception
+    // the page can catch — it is a console message and an error event.
+    const cspViolations = [];
+    page.on('console', (message) => {
+      const text = message.text();
+      if (/Content Security Policy/i.test(text)) cspViolations.push(text);
+    });
+
     const csp = await page.evaluate(() => {
       const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
       return meta ? meta.getAttribute('content') : null;
@@ -658,6 +666,43 @@ async function run(playwright) {
     check('a Content-Security-Policy is present', typeof csp === 'string' && csp.length > 0);
     check('the policy forbids inline script', Boolean(csp && !/script-src[^;]*unsafe-inline/.test(csp)), String(csp).slice(0, 80));
     check('the policy blocks objects and base hijacking', Boolean(csp && /object-src 'none'/.test(csp) && /base-uri 'none'/.test(csp)));
+
+    // The unit tests inject a socket factory, so nothing below the browser
+    // can tell whether the page is actually allowed to open one. connect-src
+    // 'self' silently forbade every relay, which made the whole sync feature
+    // inert while every test stayed green. So: open a real WebSocket from
+    // the real page under the real policy.
+    const socketVerdict = await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          let socket;
+          try {
+            socket = new WebSocket('wss://relay.invalid.test/');
+          } catch (error) {
+            resolve(`threw: ${String(error)}`);
+            return;
+          }
+          // A CSP refusal fires 'error' synchronously-ish with the socket
+          // never leaving CONNECTING; a DNS failure looks the same from
+          // here, so the console violation below is what distinguishes them.
+          setTimeout(() => {
+            try {
+              socket.close();
+            } catch {}
+            resolve('allowed to attempt');
+          }, 300);
+        }),
+    );
+    check(
+      'the page may open a relay WebSocket at all',
+      socketVerdict === 'allowed to attempt',
+      String(socketVerdict),
+    );
+    check(
+      'and no CSP violation was reported for it',
+      !cspViolations.some((message) => /connect-src/.test(message)),
+      cspViolations.filter((message) => /connect-src/.test(message)).slice(0, 2).join(' | '),
+    );
 
 
 

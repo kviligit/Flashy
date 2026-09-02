@@ -35,6 +35,15 @@ export interface FakeRelayFaults {
   duplicate?: number;
   /** Send a CLOSED instead of answering a REQ. */
   closeSubscriptions?: string;
+  /** Answer every REQ with everything stored, filter or no filter. */
+  ignoreFilters?: boolean;
+  /**
+   * Answer every publish with OK true and store nothing.
+   *
+   * Not a hypothetical: relays prune, fill their disks, and drop kinds
+   * they do not recognise after having accepted them.
+   */
+  acceptAndDiscard?: boolean;
 }
 
 /** The store behind one or more connections. */
@@ -134,7 +143,7 @@ class FakeSocket implements RelaySocket {
       this.deliver(['OK', event.id, false, faults.rejectPublish]);
       return;
     }
-    this.relay.seed(event);
+    if (!faults.acceptAndDiscard) this.relay.seed(event);
     if (faults.dropOk) return;
     this.deliver(['OK', event.id, true, '']);
   }
@@ -153,7 +162,8 @@ class FakeSocket implements RelaySocket {
     if (faults.injectUnrequested) this.deliver(['EVENT', id, faults.injectUnrequested]);
 
     const copies = Math.max(1, faults.duplicate ?? 1);
-    for (const event of this.relay.matching(filters)) {
+    const answer = faults.ignoreFilters ? this.relay.events : this.relay.matching(filters);
+    for (const event of answer) {
       const sent = faults.tamper ? tamper(event) : event;
       for (let i = 0; i < copies; i += 1) this.deliver(['EVENT', id, sent]);
     }

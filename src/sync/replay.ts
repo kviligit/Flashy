@@ -93,16 +93,42 @@ export async function replayCard(db: Db, cardId: string): Promise<Card | null> {
   return replayed;
 }
 
-/** Replay several cards, returning how many actually changed. */
-export async function replayCards(db: Db, cardIds: Iterable<string>): Promise<number> {
+export interface ReplayOutcome {
+  /** Cards whose schedule actually moved. */
+  changed: number;
+  /** Cards whose replay threw, with the reason, rather than aborting all. */
+  failed: Array<{ cardId: string; reason: string }>;
+}
+
+/**
+ * Replay several cards.
+ *
+ * One card's failure must not abort the rest, and must not abort the merge
+ * that called this. Before that was true, a single malformed review log —
+ * which had already been written to the database by the time the replay
+ * ran — threw out of `applyChanges`, lost the round's watermark, and then
+ * threw again on every subsequent round, permanently. A card that cannot
+ * be replayed is a card with a wrong schedule; a merge that cannot
+ * complete is a device that has stopped syncing.
+ */
+export async function replayCards(db: Db, cardIds: Iterable<string>): Promise<ReplayOutcome> {
   let changed = 0;
+  const failed: Array<{ cardId: string; reason: string }> = [];
+
   for (const id of cardIds) {
     const before = await db.cards.get(id);
     if (!before) continue;
-    const after = await replayCard(db, id);
-    if (after && (after.due !== before.due || after.reps !== before.reps)) changed += 1;
+    try {
+      const after = await replayCard(db, id);
+      if (after && (after.due !== before.due || after.reps !== before.reps)) changed += 1;
+    } catch (error) {
+      failed.push({
+        cardId: id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  return changed;
+  return { changed, failed };
 }
 
 async function configForCard(db: Db, card: Card): Promise<DeckConfig | null> {

@@ -11,7 +11,7 @@ import { bytesToHex, generateSecretKey, getPublicKey } from '../nostr/secp256k1.
 import { LocalSigner } from '../nostr/signer.js';
 import { FakeRelay } from '../nostr/fake-relay.js';
 import { Relay } from '../nostr/relay.js';
-import { syncWith } from './engine.js';
+import { readSyncState, syncWith } from './engine.js';
 import { NostrTransport, type TransportProblem } from './nostr-transport.js';
 
 /**
@@ -307,17 +307,41 @@ test('a push that no relay accepts throws rather than losing the records', async
   );
 });
 
-test('a tampering relay contributes nothing', async () => {
+test('a tampering relay contributes nothing, and says so rather than looking idle', async () => {
   const { a, b, basic, deck, tick } = await twoDevices();
   const wired = wire(tick);
   await addNote(a, { noteTypeId: basic.id, deckId: deck.id, fields: { Front: 'authentic' }, now: tick() });
   await syncWith(a, wired.transportFor('device-a'), { now: tick });
 
   wired.relay.faults.tamper = true;
-  const pulled = await syncWith(b, wired.transportFor('device-b'), { now: tick });
 
-  assert.equal(pulled.pulled.applied, 0, 'the altered events never reached the merge');
-  assert.equal((await b.notes.getAll()).length, 0);
+  // Nothing it sends can be read, including our own push read back — so
+  // the round fails loudly. A relay that alters events is not a relay this
+  // device can use, and reporting "up to date" would be a lie.
+  await assert.rejects(
+    () => syncWith(b, wired.transportFor('device-b'), { now: tick }),
+    /can be read back|no relay accepted/,
+  );
+  assert.equal((await b.notes.getAll()).length, 0, 'the altered events never reached the merge');
+});
+
+test('a relay that acknowledges a push and stores nothing is caught', async () => {
+  const { a, basic, deck, tick } = await twoDevices();
+  const relay = new FakeRelay('wss://relay.test');
+  relay.faults.acceptAndDiscard = true;
+  const wired = wire(tick, relay);
+  await addNote(a, { noteTypeId: basic.id, deckId: deck.id, fields: { Front: 'x' }, now: tick() });
+
+  // Without the read-back this reported "7 sent", advanced the push
+  // watermark, and never offered those records again — a permanent,
+  // invisible hole in the backup the feature exists to provide.
+  await assert.rejects(
+    () => syncWith(a, wired.transportFor('device-a'), { now: tick }),
+    /can be read back/,
+  );
+
+  const state = await readSyncState(a, wired.transportFor('device-a').peerId);
+  assert.equal(state.lastPushedAt, 0, 'and the watermark did not move');
 });
 
 test('the pull watermark advances only past what was actually read', async () => {

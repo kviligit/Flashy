@@ -33,6 +33,9 @@ export interface RunSyncOptions {
   timeoutMs?: number;
 }
 
+/** Most relay NOTICE lines kept per round. They are diagnostics, not a log. */
+export const MAX_NOTICES = 20;
+
 export type RunOutcome =
   | { ok: true; result: SyncResult; problems: TransportProblem[] }
   | { ok: false; reason: string; problems: TransportProblem[] };
@@ -41,6 +44,7 @@ export async function runSync(db: Db, options: RunSyncOptions = {}): Promise<Run
   const account = options.account ?? readAccount(options.store);
   const state = readiness(account, options.store, options.scope ?? globalThis);
   const problems: TransportProblem[] = [];
+  let notices = 0;
   if (!state.ready) return { ok: false, reason: state.reason, problems };
 
   // The device id is the collection's, not the account's: two devices
@@ -53,7 +57,12 @@ export async function runSync(db: Db, options: RunSyncOptions = {}): Promise<Run
       new Relay(url, {
         ...(options.socket ? { socket: options.socket } : {}),
         ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-        onNotice: (message) => problems.push({ kind: 'undecodable', eventId: url, reason: message }),
+        onNotice: (message) => {
+          // Capped: a misbehaving relay can emit these as fast as it can
+          // write, and they are diagnostics, not a log.
+          if (notices < MAX_NOTICES) problems.push({ kind: 'relay-notice', url, message });
+          notices += 1;
+        },
       }),
   );
 
@@ -66,6 +75,27 @@ export async function runSync(db: Db, options: RunSyncOptions = {}): Promise<Run
       onProblem: (problem) => problems.push(problem),
     });
     const result = await syncWith(db, transport, options.now ? { now: options.now } : {});
+
+    // "Already up to date" and "could not reach anything" look identical
+    // from here — both are an empty change set — and the steady state of a
+    // working device is the first one, so the second hides inside it. A
+    // device whose relays have all gone away would otherwise report
+    // success indefinitely, which is exactly the failure the automatic
+    // sync claims to protect against.
+    if (transport.incomplete) {
+      const reasons = problems
+        .filter((problem) => problem.kind === 'relay-failed')
+        .map((problem) => `${problem.url}: ${problem.error.message}`);
+      return {
+        ok: false,
+        reason:
+          reasons.length > 0
+            ? `Could not reach ${reasons.length === 1 ? 'the relay' : 'every relay'} — ${reasons.join('; ')}`
+            : 'The round did not complete; some changes were not read.',
+        problems,
+      };
+    }
+
     return { ok: true, result, problems };
   } catch (error) {
     return {

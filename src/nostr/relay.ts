@@ -28,7 +28,7 @@
  * whatever decides that rounds should keep happening, not here.
  */
 
-import { verifyEvent, type NostrEvent } from './event.js';
+import { isWellFormed, verifyEvent, type NostrEvent } from './event.js';
 
 /**
  * The part of a WebSocket this client uses.
@@ -77,6 +77,14 @@ export interface RelayOptions {
   maxEvents?: number;
   /** Largest single relay message accepted, in characters. */
   maxMessageChars?: number;
+  /**
+   * Most events one subscription may be *offered*, accepted or not.
+   *
+   * `maxEvents` bounds what a query returns; this bounds what a relay can
+   * make the device look at. Without it, a relay that sends nothing
+   * matching the filter is unbounded, because nothing it sends counts.
+   */
+  maxOffered?: number;
   /** Called with anything the relay says on NOTICE, for diagnostics. */
   onNotice?: (message: string) => void;
 }
@@ -89,6 +97,8 @@ export const DEFAULT_MAX_EVENTS = 5_000;
  * message exhaust memory.
  */
 export const DEFAULT_MAX_MESSAGE_CHARS = 512 * 1024;
+/** Ten times the accept cap: generous for duplicates, closed to a flood. */
+export const DEFAULT_MAX_OFFERED = 50_000;
 
 export class RelayError extends Error {
   constructor(
@@ -110,6 +120,8 @@ interface Subscription {
   filters: Filter[];
   events: NostrEvent[];
   seen: Set<string>;
+  /** Everything the relay sent for this subscription, accepted or not. */
+  offered: number;
   resolve: (events: NostrEvent[]) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -158,6 +170,7 @@ export class Relay {
   private readonly timeoutMs: number;
   private readonly maxEvents: number;
   private readonly maxMessageChars: number;
+  private readonly maxOffered: number;
   private readonly factory: SocketFactory;
   private readonly onNotice: (message: string) => void;
 
@@ -168,6 +181,7 @@ export class Relay {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxEvents = options.maxEvents ?? DEFAULT_MAX_EVENTS;
     this.maxMessageChars = options.maxMessageChars ?? DEFAULT_MAX_MESSAGE_CHARS;
+    this.maxOffered = options.maxOffered ?? DEFAULT_MAX_OFFERED;
     this.factory = options.socket ?? defaultSocketFactory;
     this.onNotice = options.onNotice ?? (() => {});
   }
@@ -261,6 +275,7 @@ export class Relay {
         filters,
         events: [],
         seen: new Set(),
+        offered: 0,
         resolve,
         reject,
         timer,
@@ -390,11 +405,54 @@ export class Relay {
     }
   }
 
+  /**
+   * The order of these checks is the whole defence against a relay
+   * grinding the device to a halt.
+   *
+   * Verifying a signature is two scalar multiplications on a curve, in
+   * JavaScript bigints — about seven milliseconds. Everything else here is
+   * free. So the free checks run first: the id must be new, and the event
+   * must match a filter we actually sent. A relay can compute correct ids
+   * (it only needs SHA-256) and attach junk signatures, so verifying
+   * before filtering let it choose how much CPU this device spent. The
+   * accepted-event cap did not bound that, because it only counted events
+   * that had already passed.
+   *
+   * Filtering unverified data is safe as long as nothing is *believed*
+   * before verification, and nothing is: an event that clears the filter
+   * still has to verify before it reaches `events`, and every field the
+   * filter reads is covered by the signature.
+   */
   private async handleEvent(message: unknown[]): Promise<void> {
     const [, id, event] = message;
     if (typeof id !== 'string') return;
     const subscription = this.subscriptions.get(id);
     if (!subscription) return;
+
+    // A relay is allowed to be wrong, not to be unbounded. Everything it
+    // sends counts against this, verified or not.
+    subscription.offered += 1;
+    if (subscription.offered > this.maxOffered) {
+      this.subscriptions.delete(id);
+      clearTimeout(subscription.timer);
+      this.trySend(['CLOSE', id]);
+      this.onNotice(`relay sent more than ${this.maxOffered} events; stopping`);
+      subscription.resolve(subscription.events);
+      return;
+    }
+
+    if (!isWellFormed(event)) {
+      this.onNotice('discarded an unverifiable event: malformed');
+      return;
+    }
+    if (subscription.seen.has(event.id)) return;
+    if (!subscription.filters.some((filter) => matchesFilter(event, filter))) {
+      this.onNotice('discarded an event that matched no filter');
+      return;
+    }
+    // Claimed now, before the await, so a relay cannot get the same id
+    // verified many times over by sending it faster than we verify it.
+    subscription.seen.add(event.id);
 
     const verification = await verifyEvent(event);
     if (!verification.ok) {
@@ -408,14 +466,6 @@ export class Relay {
     const live = this.subscriptions.get(id);
     if (!live) return;
 
-    if (!live.filters.some((filter) => matchesFilter(verified, filter))) {
-      this.onNotice('discarded an event that matched no filter');
-      return;
-    }
-    // Relays may repeat an event across filters; the id makes that free to
-    // detect and it keeps the cap honest.
-    if (live.seen.has(verified.id)) return;
-    live.seen.add(verified.id);
     live.events.push(verified);
 
     if (live.events.length >= this.maxEvents) {

@@ -201,11 +201,14 @@ export function bigIntTo32Bytes(value: bigint): Uint8Array {
 export function hexToBytes(hex: string): Uint8Array {
   const clean = hex.trim().toLowerCase();
   if (clean.length % 2 !== 0) throw new Error('hex string has an odd length');
+  // Number.parseInt is far too willing: it reads a prefix and stops, so
+  // "0z" was 0x00 and "-1" was 0xff — wrong bytes, silently, in the
+  // function that turns keys and signatures into bytes. Every caller
+  // happens to validate first today; this is not a thing to leave loaded.
+  if (!/^[0-9a-f]*$/.test(clean)) throw new Error('hex string contains a non-hex character');
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) {
-    const byte = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-    if (Number.isNaN(byte)) throw new Error('hex string contains a non-hex character');
-    out[i] = byte;
+    out[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
 }

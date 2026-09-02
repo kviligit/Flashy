@@ -25,8 +25,16 @@
  * each believing the other is behind.
  */
 
-import { CONTENT_STORES, versionOf, type ChangeSet, type ContentStore, type Db, type Upsert } from '../storage/index.js';
+import {
+  CONTENT_STORES,
+  versionOf,
+  type ChangeSet,
+  type ContentStore,
+  type Db,
+  type Upsert,
+} from '../storage/index.js';
 import type { Entity } from '../domain/types.js';
+import { hashContent } from '../domain/media.js';
 import { Rating, State } from '../fsrs/index.js';
 import { replayCards } from './replay.js';
 import { emptyCounts, type MergeCounts } from './types.js';
@@ -63,20 +71,41 @@ export async function applyChanges(
   }
 
   if (options.replay !== false && touchedCards.size > 0) {
-    counts.cardsReplayed = await replayCards(db, touchedCards);
+    const replay = await replayCards(db, touchedCards);
+    counts.cardsReplayed = replay.changed;
+    counts.replayFailures = replay.failed.length;
   }
 
   return counts;
 }
 
 /**
- * How far into the future a peer's timestamp may be before we disbelieve it.
- *
- * Clocks differ, so some slack is necessary; a day is generous for that and
- * still refuses a record dated next century, which would otherwise win every
- * conflict for the rest of the collection's life.
+ * How far apart two devices' clocks may be before this one stops trusting
+ * the other's ordering at all. Used for watermarks and the relay lookback.
  */
 export const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How far into the future a *record's* timestamp may be.
+ *
+ * This used to be the day above, and a day is far too generous. Last-write
+ * wins compares peer-supplied timestamps, so whatever slack is allowed here
+ * is exactly how long a peer can hold a record above every edit the user
+ * makes afterwards — applying them locally, showing no conflict, and
+ * overwriting them again on the next round. At a day, a peer that re-sends
+ * one record with a refreshed timestamp owns that record for ever and the
+ * user watches their edits evaporate with no explanation.
+ *
+ * Five minutes is far more slack than a network-synchronised clock needs,
+ * and it bounds the damage to five minutes of work rather than a day's.
+ *
+ * It does not eliminate the problem, and pretending otherwise would be
+ * worse than stating it: any last-write-wins scheme that trusts a peer's
+ * clock lets that peer win by claiming to be slightly ahead. Fixing it
+ * properly needs version vectors or receipt-time tracking, neither of
+ * which is a change to make while nobody is watching.
+ */
+export const MAX_FUTURE_VERSION_MS = 5 * 60 * 1000;
 
 /**
  * Whether a record is fit to be written at all.
@@ -89,7 +118,7 @@ export const MAX_CLOCK_SKEW_MS = 24 * 60 * 60 * 1000;
 function isAcceptable(store: ContentStore, record: Entity, version: number, now: number): boolean {
   if (typeof record.id !== 'string' || record.id.length === 0) return false;
   if (!Number.isFinite(version) || version < 0) return false;
-  if (version > now + MAX_CLOCK_SKEW_MS) return false;
+  if (version > now + MAX_FUTURE_VERSION_MS) return false;
   if (hasNonFiniteNumber(record)) return false;
 
   if (store === 'reviewLogs') {
@@ -103,8 +132,64 @@ function isAcceptable(store: ContentStore, record: Entity, version: number, now:
     if (typeof log['cardId'] !== 'string' || log['cardId'].length === 0) return false;
     const before = log['stateBefore'];
     if (typeof before !== 'number' || !STATES_ALLOWED.has(before)) return false;
+
+    // `reviewedAt` orders the replay and `snapshot` is where it starts
+    // from, which makes them the two most powerful fields in the record —
+    // and they were the two this function did not look at. One log with a
+    // snapshot claiming a stability of a million moves a card's due date
+    // into the next century, counted to the user as one review received.
+    const reviewedAt = log['reviewedAt'];
+    if (typeof reviewedAt !== 'number' || !Number.isFinite(reviewedAt)) return false;
+    if (reviewedAt < 0 || reviewedAt > now + MAX_FUTURE_VERSION_MS) return false;
+    if (!isPlausibleSnapshot(log['snapshot'])) return false;
   }
 
+  return true;
+}
+
+/** A century of days of stability, and the hardest a card can be. */
+const MAX_STABILITY = 36_500;
+const MAX_DIFFICULTY = 10;
+const MAX_REPS = 1_000_000;
+
+/**
+ * Whether a review log's snapshot could have come from this app.
+ *
+ * The replay seeds a card's entire scheduling history from the earliest
+ * log's snapshot, so an unchecked one is not a cosmetic problem: it is
+ * arbitrary control over the card's future, exercised through a code path
+ * whose counters report nothing unusual. A missing snapshot is just as
+ * bad in the other direction — it throws inside the replay, after the log
+ * has already been written, leaving the card permanently unreplayable.
+ */
+function isPlausibleSnapshot(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const card = value as Record<string, unknown>;
+
+  if (typeof card['id'] !== 'string' || card['id'].length === 0) return false;
+  const state = card['state'];
+  if (typeof state !== 'number' || !STATES_ALLOWED.has(state)) return false;
+
+  for (const field of ['reps', 'lapses', 'step'] as const) {
+    const number = card[field];
+    if (typeof number !== 'number' || !Number.isInteger(number)) return false;
+    if (number < 0 || number > MAX_REPS) return false;
+  }
+
+  if (typeof card['due'] !== 'string' || !Number.isFinite(Date.parse(card['due']))) return false;
+  const lastReview = card['lastReview'];
+  if (lastReview !== null && lastReview !== undefined) {
+    if (typeof lastReview !== 'string' || !Number.isFinite(Date.parse(lastReview))) return false;
+  }
+
+  const memory = card['memory'];
+  if (memory === null || memory === undefined) return true;
+  if (typeof memory !== 'object' || Array.isArray(memory)) return false;
+  const { stability, difficulty } = memory as Record<string, unknown>;
+  if (typeof stability !== 'number' || !(stability > 0) || stability > MAX_STABILITY) return false;
+  if (typeof difficulty !== 'number' || !(difficulty >= 1) || difficulty > MAX_DIFFICULTY) {
+    return false;
+  }
   return true;
 }
 
@@ -113,6 +198,29 @@ const STATES_ALLOWED = new Set<number>([State.New, State.Learning, State.Review,
 
 /** A century of days: past any real interval, short of absurd. */
 const MAX_ELAPSED_DAYS = 36_500;
+
+
+/**
+ * Whether a media record's id is genuinely the hash of its bytes.
+ *
+ * This is what makes "the same id is the same bytes" a fact rather than a
+ * hope, and it is the only reason first-writer-wins is safe for media: a
+ * peer cannot claim an id it has not earned, so it cannot squat the id a
+ * file the user has not added yet will hash to.
+ */
+async function hasMatchingHash(record: Entity): Promise<boolean> {
+  const data = (record as unknown as { data?: unknown }).data;
+  if (!(data instanceof ArrayBuffer)) return false;
+  if (data.byteLength === 0) return false;
+  try {
+    return (await hashContent(data)) === record.id;
+  } catch {
+    // A browser without SubtleCrypto cannot check, and accepting on the
+    // strength of "we could not look" is how this kind of check gets
+    // quietly disabled. Sync needs SubtleCrypto anyway.
+    return false;
+  }
+}
 
 /** True if any number anywhere in the record is not finite. */
 function hasNonFiniteNumber(value: unknown, depth = 0): boolean {
@@ -164,8 +272,16 @@ async function applyUpsert(
     return;
   }
 
-  // Content-addressed: the same id is the same bytes.
+  // Media is content-addressed, and first-writer-wins is only safe because
+  // of that: two records with the same id must be the same bytes. Nothing
+  // used to check it, which made the rule a liability rather than a
+  // shortcut — a peer could claim the id an image *will* hash to, and the
+  // real file would then be skipped as already present, permanently.
   if (upsert.store === 'media') {
+    if (!(await hasMatchingHash(incoming))) {
+      counts.rejected += 1;
+      return;
+    }
     if (local) {
       counts.skipped += 1;
       return;
