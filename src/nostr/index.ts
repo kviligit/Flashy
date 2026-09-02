@@ -46,3 +46,14 @@ export type { NostrEvent, UnsignedEvent, VerifyResult } from './event.js';
 
 export { DEFAULT_MAX_EVENTS, DEFAULT_TIMEOUT_MS, matchesFilter, openRelay, Relay, RelayError } from './relay.js';
 export type { Filter, RelayOptions, RelaySocket, SocketFactory } from './relay.js';
+export { detectNip07, LocalSigner, Nip07Signer } from './signer.js';
+export type { Nip07Provider, Signer } from './signer.js';
+export {
+  abbreviate,
+  npubDecode,
+  npubEncode,
+  nsecDecode,
+  nsecEncode,
+  toPublicKeyHex,
+  toSecretKeyHex,
+} from './nip19.js';

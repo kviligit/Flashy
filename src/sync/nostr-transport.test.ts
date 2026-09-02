@@ -7,7 +7,8 @@ import { addMedia } from '../collection/media.js';
 import { Scheduler } from '../scheduler/index.js';
 import { Rating } from '../fsrs/index.js';
 import type { DeckConfig, NoteType } from '../domain/types.js';
-import { generateSecretKey } from '../nostr/secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey } from '../nostr/secp256k1.js';
+import { LocalSigner } from '../nostr/signer.js';
 import { FakeRelay } from '../nostr/fake-relay.js';
 import { Relay } from '../nostr/relay.js';
 import { syncWith } from './engine.js';
@@ -20,6 +21,8 @@ import { NostrTransport, type TransportProblem } from './nostr-transport.js';
  * filter its own events out rather than relying on the author.
  */
 const secretKey = generateSecretKey();
+const signer = new LocalSigner(secretKey);
+const pubkey = bytesToHex(getPublicKey(secretKey));
 
 function makeClock(start = Date.now() + 60_000) {
   let value = start;
@@ -64,7 +67,8 @@ function wire(tick: () => number, relay = new FakeRelay()): Wired {
     problems,
     transportFor(device, options = {}) {
       return new NostrTransport({
-        secretKey,
+        signer,
+        pubkey,
         deviceId: device,
         relays: [new Relay(relay.url, { socket: relay.connect, timeoutMs: 2000 })],
         now: options.now ?? tick,
@@ -267,7 +271,8 @@ test('a relay that fails a query does not fail the round', async () => {
 
   const transport = (device: string) =>
     new NostrTransport({
-      secretKey,
+      signer,
+      pubkey,
       deviceId: device,
       relays: [
         new Relay(good.url, { socket: good.connect, timeoutMs: 2000 }),

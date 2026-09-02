@@ -26,3 +26,21 @@ export {
   WIRE_VERSION,
 } from './wire.js';
 export type { ChunkResult, Oversized, WireChangeSet, WireUpsert } from './wire.js';
+export {
+  createLocalKey,
+  defaultStore,
+  forgetIdentity,
+  importLocalKey,
+  isRelayUrl,
+  memoryStore,
+  readAccount,
+  readiness,
+  revealSecretKey,
+  setAuto,
+  setRelays,
+  signerFor,
+  SUGGESTED_RELAYS,
+  useExtension,
+} from './account.js';
+export type { KeyValueStore, SyncAccount, SyncMode, SyncReadiness } from './account.js';
+export { openTransport } from './nostr-transport.js';

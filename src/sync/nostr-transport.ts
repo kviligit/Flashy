@@ -47,19 +47,9 @@
  */
 
 import type { ChangeSet } from '../storage/index.js';
-import {
-  conversationKey,
-  decrypt,
-  encrypt,
-  getPublicKey,
-  bytesToHex,
-  hexToBytes,
-  signEvent,
-  tagValue,
-  type NostrEvent,
-  type UnsignedEvent,
-} from '../nostr/index.js';
+import { tagValue, type NostrEvent, type UnsignedEvent } from '../nostr/index.js';
 import type { Filter, Relay } from '../nostr/relay.js';
+import type { Signer } from '../nostr/signer.js';
 import type { SyncTransport } from './types.js';
 import {
   chunkChangeSet,
@@ -86,8 +76,14 @@ export const APP_NAME = 'flashy-sync-v1';
 export const LOOKBACK_SECONDS = 24 * 60 * 60;
 
 export interface NostrTransportOptions {
-  /** The user's secret key. Its public key is the sync identity. */
-  secretKey: Uint8Array;
+  /**
+   * Who holds the key. An extension signer never lets the secret into this
+   * page, which is the difference between a stolen key and a stolen
+   * session if anything ever does manage to run script here.
+   */
+  signer: Signer;
+  /** The signer's public key, resolved once by `openTransport`. */
+  pubkey: string;
   /** This device's id, so its own events can be filtered out. */
   deviceId: string;
   /** Connected relays. A push goes to all of them; a pull unions them. */
@@ -117,20 +113,19 @@ export type TransportProblem =
 export class NostrTransport implements SyncTransport {
   readonly peerId: string;
   readonly pubkey: string;
-  private readonly secretKey: Uint8Array;
+  private readonly signer: Signer;
   private readonly deviceId: string;
   private readonly relays: Relay[];
   private readonly maxChunkBytes: number;
   private readonly now: () => number;
   private readonly onProblem: (problem: TransportProblem) => void;
-  private conversation: Uint8Array | null = null;
 
   /** Records left behind on the most recent push, for the caller to show. */
   lastOversized: Oversized[] = [];
 
   constructor(options: NostrTransportOptions) {
-    this.secretKey = options.secretKey;
-    this.pubkey = bytesToHex(getPublicKey(options.secretKey));
+    this.signer = options.signer;
+    this.pubkey = options.pubkey;
     this.deviceId = options.deviceId;
     this.relays = options.relays;
     this.maxChunkBytes = options.maxChunkBytes ?? MAX_CHUNK_BYTES;
@@ -186,7 +181,7 @@ export class NostrTransport implements SyncTransport {
 
       let chunk: ChangeSet & { device: string };
       try {
-        const plaintext = await decrypt(event.content, await this.conversationKey());
+        const plaintext = await this.signer.decrypt(this.pubkey, event.content);
         chunk = decodeChangeSet(JSON.parse(plaintext));
       } catch (error) {
         // One bad event must not fail the round. A peer running unreleased
@@ -230,11 +225,10 @@ export class NostrTransport implements SyncTransport {
     for (const record of oversized) this.onProblem({ kind: 'oversized', record });
     if (chunks.length === 0) return;
 
-    const key = await this.conversationKey();
     const createdAt = Math.floor(this.now() / 1000);
 
     for (const chunk of chunks) {
-      const content = await encrypt(JSON.stringify(chunk), key);
+      const content = await this.signer.encrypt(this.pubkey, JSON.stringify(chunk));
       const unsigned: UnsignedEvent = {
         pubkey: this.pubkey,
         created_at: createdAt,
@@ -245,7 +239,7 @@ export class NostrTransport implements SyncTransport {
         ],
         content,
       };
-      const event = await signEvent(unsigned, this.secretKey);
+      const event = await this.signer.signEvent(unsigned);
 
       const failures: Error[] = [];
       let delivered = 0;
@@ -268,19 +262,17 @@ export class NostrTransport implements SyncTransport {
       }
     }
   }
+}
 
-  /**
-   * The NIP-44 key for talking to ourselves, derived once.
-   *
-   * The derivation is an elliptic-curve multiplication, which in this
-   * hand-written implementation is the slowest thing in the module.
-   * Deriving it per chunk would make a large push quadratically painful
-   * for no benefit: it is the same key every time.
-   */
-  private async conversationKey(): Promise<Uint8Array> {
-    if (!this.conversation) {
-      this.conversation = await conversationKey(this.secretKey, hexToBytes(this.pubkey));
-    }
-    return this.conversation;
-  }
+/**
+ * Build a transport, resolving the signer's public key first.
+ *
+ * With an extension signer, asking for the public key can prompt the user,
+ * so it happens once here rather than inside every pull and push.
+ */
+export async function openTransport(
+  options: Omit<NostrTransportOptions, 'pubkey'>,
+): Promise<NostrTransport> {
+  const pubkey = await options.signer.getPublicKey();
+  return new NostrTransport({ ...options, pubkey });
 }
