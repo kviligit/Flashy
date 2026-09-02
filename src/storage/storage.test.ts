@@ -40,6 +40,7 @@ test('every store declares its indexes', () => {
     'deckConfigs',
     'decks',
     'deletions',
+    'media',
     'meta',
     'noteTypes',
     'notes',

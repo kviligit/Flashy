@@ -10,6 +10,7 @@ import type {
   DeckConfig,
   Deletion,
   Entity,
+  MediaFile,
   Meta,
   Note,
   NoteType,
@@ -68,6 +69,7 @@ export interface Db {
   readonly cards: Store<Card>;
   readonly reviewLogs: Store<ReviewLog>;
   readonly meta: Store<Meta>;
+  readonly media: Store<MediaFile>;
   /** Tombstones. Written by the storage layer, not by callers. */
   readonly deletions: Store<Deletion>;
   /** Wipe every store. */
@@ -87,6 +89,7 @@ export const INDEXES = {
   cards: ['noteId', 'deckId', 'due', 'state', 'position', 'modified'],
   reviewLogs: ['cardId', 'reviewedAt'],
   meta: [],
+  media: ['filename', 'modified'],
   deletions: ['store', 'deletedAt'],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -132,6 +135,7 @@ export const VERSION_FIELD = {
   cards: 'modified',
   reviewLogs: 'reviewedAt',
   meta: 'modified',
+  media: 'modified',
 } as const satisfies Partial<Record<StoreName, string>>;
 
 /** The stores that hold user content — everything a sync would carry. */
@@ -142,6 +146,7 @@ export const CONTENT_STORES = [
   'notes',
   'cards',
   'reviewLogs',
+  'media',
 ] as const satisfies readonly StoreName[];
 
 export type ContentStore = (typeof CONTENT_STORES)[number];

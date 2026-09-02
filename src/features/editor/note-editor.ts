@@ -9,6 +9,9 @@ import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
 import { generateOrds, renderCard } from '../../domain/cards.js';
 import { addNote, completeFields, parseTags, updateNote } from '../../collection/notes.js';
+import { addMedia } from '../../collection/media.js';
+import { MediaResolver } from '../../ui/media-resolver.js';
+import { deferMediaSrc } from '../../domain/media.js';
 import type { Deck, Note, NoteType } from '../../domain/types.js';
 
 export interface EditorOptions {
@@ -56,6 +59,7 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
 
   let fields: Record<string, string> = completeFields(noteType, editing?.fields ?? {});
   let tagsText = (editing?.tags ?? []).join(' ');
+  const media = new MediaResolver(ctx.db);
 
   const draw = (): void => {
     const inputs = noteType.fields.map((f) => {
@@ -69,7 +73,95 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
           drawPreview();
         },
       });
-      return el('div.field-editor', {}, field(f.name, control));
+
+      const picker = input({
+        type: 'file',
+        accept: 'image/*,audio/*',
+        multiple: true,
+        style: { display: 'none' },
+        'data-media-input': f.name,
+      });
+
+      /** Insert markup where the cursor is, rather than at the end. */
+      const insert = (markup: string): void => {
+        const start = control.selectionStart ?? control.value.length;
+        const end = control.selectionEnd ?? start;
+        const before = control.value.slice(0, start);
+        const after = control.value.slice(end);
+        control.value = `${before}${markup}${after}`;
+        fields[f.name] = control.value;
+        const caret = start + markup.length;
+        control.setSelectionRange(caret, caret);
+        control.focus();
+        drawPreview();
+      };
+
+      const attach = async (files: FileList | null): Promise<void> => {
+        if (!files || files.length === 0) return;
+        for (const file of Array.from(files)) {
+          try {
+            const result = await addMedia(ctx.db, {
+              filename: file.name,
+              mime: file.type,
+              data: await file.arrayBuffer(),
+            });
+            insert(result.tag);
+            toast(
+              result.deduplicated
+                ? `Reused "${result.file.filename}", which was already in the collection.`
+                : `Attached "${result.file.filename}".`,
+              'success',
+            );
+          } catch (error) {
+            toast(error instanceof Error ? error.message : String(error), 'error');
+          }
+        }
+      };
+
+      picker.addEventListener('change', () => {
+        void attach(picker.files).finally(() => {
+          picker.value = '';
+        });
+      });
+
+      // Dropping a file onto the field is the fastest way to attach one.
+      control.addEventListener('dragover', (ev) => {
+        ev.preventDefault();
+        control.classList.add('drop-target');
+      });
+      control.addEventListener('dragleave', () => control.classList.remove('drop-target'));
+      control.addEventListener('drop', (ev) => {
+        ev.preventDefault();
+        control.classList.remove('drop-target');
+        void attach(ev.dataTransfer?.files ?? null);
+      });
+
+      // So is pasting a screenshot.
+      control.addEventListener('paste', (ev) => {
+        const items = ev.clipboardData?.files;
+        if (items && items.length > 0) {
+          ev.preventDefault();
+          void attach(items);
+        }
+      });
+
+      return el(
+        'div.field-editor',
+        {},
+        el(
+          'div.row',
+          { style: { alignItems: 'baseline' } },
+          el('span.field-label', { text: f.name }),
+          el('div.spacer', {}),
+          button('Attach…', () => picker.click(), {
+            class: 'ghost',
+            'data-action': `attach-${f.name}`,
+            title: 'Add an image or sound. You can also drag one in, or paste a screenshot.',
+          }),
+        ),
+        control,
+        picker,
+      );
     });
 
     const noteTypeSelect = select(
@@ -118,6 +210,11 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
       const ords = generateOrds(noteType, complete);
       saveButton.disabled = ords.length === 0;
 
+      const paint = (node: HTMLElement): HTMLElement => {
+        void media.resolve(node);
+        return node;
+      };
+
       render(
         previewHost,
         el(
@@ -139,14 +236,19 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
             })
           : ords.map((ord) => {
               const { question, answer } = renderCard(noteType, complete, ord);
-              return el(
-                'div.card',
-                {},
-                el('div.preview-label', {
-                  text: noteType.kind === 'cloze' ? `Cloze ${ord}` : (noteType.templates[ord]?.name ?? `Card ${ord + 1}`),
-                }),
-                el('div.preview-card', { html: question, 'data-preview': 'question' }),
-                el('div.preview-card', { html: answer, 'data-preview': 'answer' }),
+              return paint(
+                el(
+                  'div.card',
+                  {},
+                  el('div.preview-label', {
+                    text:
+                      noteType.kind === 'cloze'
+                        ? `Cloze ${ord}`
+                        : (noteType.templates[ord]?.name ?? `Card ${ord + 1}`),
+                  }),
+                  el('div.preview-card', { html: deferMediaSrc(question), 'data-preview': 'question' }),
+                  el('div.preview-card', { html: deferMediaSrc(answer), 'data-preview': 'answer' }),
+                ),
               );
             }),
       );
@@ -229,4 +331,13 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
 
   draw();
   root.querySelector<HTMLTextAreaElement>('textarea[data-field]')?.focus();
+
+  // Object URLs live until they are revoked, so let them go once the router
+  // has swapped this screen out.
+  const watcher = new MutationObserver(() => {
+    if (root.isConnected) return;
+    watcher.disconnect();
+    media.dispose();
+  });
+  watcher.observe(document.body, { childList: true, subtree: true });
 }

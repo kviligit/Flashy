@@ -14,6 +14,8 @@ import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
 import { renderCard } from '../../domain/cards.js';
+import { MediaResolver } from '../../ui/media-resolver.js';
+import { deferMediaSrc } from '../../domain/media.js';
 import type { Card, Note, NoteType } from '../../domain/types.js';
 import {
   RATING_LABEL,
@@ -57,6 +59,9 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
   }
 
   const startedCounts = { ...session.counts };
+  // One resolver for the session: the same image on several cards costs a
+  // single object URL, and everything is released when the screen goes.
+  const media = new MediaResolver(ctx.db);
   let current: Current | null = null;
   let showingAnswer = false;
   let answered = 0;
@@ -68,9 +73,11 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
 
   const onKey = (ev: KeyboardEvent): void => {
     // The router replaces the outlet's children on navigation; when that
-    // happens this handler must retire itself.
+    // happens this handler must retire itself, and the session's object
+    // URLs go with it.
     if (!root.isConnected) {
       document.removeEventListener('keydown', onKey);
+      media.dispose();
       return;
     }
     if (document.querySelector('.backdrop')) return; // a dialog owns the keyboard
@@ -211,6 +218,13 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
 
   const draw = (): void => {
     if (!current) return;
+
+    const content = el('div.review-content', {
+      html: deferMediaSrc(showingAnswer ? current.answer : current.question),
+      'data-side': showingAnswer ? 'answer' : 'question',
+    });
+    void media.resolve(content);
+
     const counts = session.queue.counts;
     const remaining = counts.new + counts.learning + counts.review;
     const total = answered + remaining;
@@ -232,10 +246,7 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
       el(
         'div.review-stage',
         {},
-        el('div.review-content', {
-          html: showingAnswer ? current.answer : current.question,
-          'data-side': showingAnswer ? 'answer' : 'question',
-        }),
+        content,
         showingAnswer ? answerBar(current.choices) : showAnswerButton(),
       ),
       el(

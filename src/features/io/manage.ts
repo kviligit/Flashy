@@ -19,6 +19,9 @@ import {
   type ImportMode,
 } from '../../collection/io.js';
 import type { Deck, NoteType } from '../../domain/types.js';
+import { cleanupUnusedMedia, mediaUsage, type MediaUsage } from '../../collection/media.js';
+import { formatFileSize, mediaKind } from '../../domain/media.js';
+import { MediaResolver } from '../../ui/media-resolver.js';
 
 export function managePage(ctx: AppContext): HTMLElement {
   const root = el('section', {});
@@ -45,6 +48,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
     backupCard(ctx, () => void draw(root, ctx)),
     csvExportCard(ctx, noteTypes),
     csvImportCard(ctx, noteTypes, decks, () => void draw(root, ctx)),
+    await mediaCard(ctx, () => void draw(root, ctx)),
   );
 }
 
@@ -460,4 +464,116 @@ function download(filename: string, contents: string, mime: string): void {
   link.remove();
   // Revoking immediately can cancel the download in some browsers.
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+
+// --- media -----------------------------------------------------------------
+
+/**
+ * What is stored, what still uses it, and a way to reclaim the rest.
+ *
+ * Usage is derived from the notes each time this renders rather than kept
+ * as a count, so it cannot drift out of step with reality — and reclaiming
+ * is a deliberate action rather than something that happens quietly when a
+ * note is deleted, because two notes can share one image.
+ */
+async function mediaCard(ctx: AppContext, refresh: () => void): Promise<HTMLElement> {
+  const usage = await mediaUsage(ctx.db);
+  const total = usage.reduce((sum, entry) => sum + entry.file.size, 0);
+  const unused = usage.filter((entry) => entry.noteCount === 0);
+
+  const host = el('div.card.col', { 'data-card': 'media' });
+  const resolver = new MediaResolver(ctx.db);
+
+  const body = usage.length === 0
+    ? el('div.empty', { text: 'No images or sounds yet. Attach one while editing a note.' })
+    : el(
+        'div',
+        { style: { overflowX: 'auto', maxHeight: '340px', overflowY: 'auto' } },
+        el(
+          'table.browse',
+          {},
+          el(
+            'thead',
+            {},
+            el('tr', {}, ['', 'File', 'Type', 'Size', 'Used by'].map((h) => el('th', { text: h }))),
+          ),
+          el('tbody', {}, usage.map((entry) => mediaRow(entry))),
+        ),
+      );
+
+  const rendered = el(
+    'div.col',
+    {},
+    el('h3', { text: 'Images & sounds' }),
+    el('p.muted', {
+      text:
+        usage.length === 0
+          ? 'Files attached to notes are stored in the collection and included in backups.'
+          : `${usage.length} file${usage.length === 1 ? '' : 's'}, ${formatFileSize(total)} in total. ${
+              unused.length === 0
+                ? 'Every file is in use.'
+                : `${unused.length} no longer used by any note (${formatFileSize(
+                    unused.reduce((sum, entry) => sum + entry.file.size, 0),
+                  )}).`
+            }`,
+    }),
+    body,
+    el(
+      'div.row',
+      {},
+      button(
+        'Delete unused files',
+        () => void reclaim(ctx, unused, refresh),
+        { class: unused.length > 0 ? 'danger' : '', disabled: unused.length === 0, 'data-action': 'cleanup-media' },
+      ),
+    ),
+  );
+
+  host.appendChild(rendered);
+  void resolver.resolve(host);
+  return host;
+}
+
+function mediaRow(entry: MediaUsage): HTMLElement {
+  const kind = mediaKind(entry.file.mime);
+  return el(
+    'tr',
+    { class: entry.noteCount === 0 ? 'media-row unused' : 'media-row', 'data-media': entry.file.id },
+    el(
+      'td.thumb',
+      {},
+      kind === 'image'
+        ? el('img', { 'data-media-src': entry.file.id, alt: entry.file.filename })
+        : el('span', { text: '♪' }),
+    ),
+    el('td.q', { text: entry.file.filename, title: entry.file.filename }),
+    el('td.muted', { text: entry.file.mime }),
+    el('td.muted', { text: formatFileSize(entry.file.size) }),
+    el('td.muted', {
+      text: entry.noteCount === 0 ? 'unused' : `${entry.noteCount} note${entry.noteCount === 1 ? '' : 's'}`,
+    }),
+  );
+}
+
+async function reclaim(ctx: AppContext, unused: MediaUsage[], refresh: () => void): Promise<void> {
+  if (unused.length === 0) return;
+  const bytes = unused.reduce((sum, entry) => sum + entry.file.size, 0);
+
+  const ok = await confirmModal(
+    'Delete unused files',
+    el(
+      'div',
+      {},
+      el('p', { text: `Delete ${unused.length} file${unused.length === 1 ? '' : 's'} no note refers to?` }),
+      el('p.muted', { text: `${formatFileSize(bytes)} will be reclaimed. This cannot be undone.` }),
+    ),
+    'Delete',
+    true,
+  );
+  if (!ok) return;
+
+  const result = await cleanupUnusedMedia(ctx.db);
+  toast(`Deleted ${result.removed} file(s), reclaiming ${formatFileSize(result.bytesReclaimed)}.`, 'success');
+  refresh();
 }

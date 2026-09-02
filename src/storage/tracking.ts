@@ -129,6 +129,7 @@ export function withChangeTracking(db: Db, options: TrackingOptions = {}): Db {
     notes: wrap('notes'),
     cards: wrap('cards'),
     reviewLogs: wrap('reviewLogs'),
+    media: wrap('media'),
     meta: db.meta,
     deletions: db.deletions,
     clear: () => db.clear(),

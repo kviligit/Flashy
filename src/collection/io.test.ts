@@ -13,6 +13,8 @@ import {
   validateExport,
 } from './io.js';
 import { addNote } from './notes.js';
+import { addMedia } from './media.js';
+import { mediaUrl } from '../domain/media.js';
 import { Rating, State } from '../fsrs/index.js';
 import type { NoteType } from '../domain/types.js';
 
@@ -322,4 +324,68 @@ test('previewCsv reports the rows and the delimiter it chose', () => {
   const preview = previewCsv('a\tb\nc\td');
   assert.equal(preview.delimiter, '\t');
   assert.deepEqual(preview.rows, [['a', 'b'], ['c', 'd']]);
+});
+
+// --- media in backups ----------------------------------------------------
+
+test('media survives a backup and restore, byte for byte', async () => {
+  const { db, basic, deck } = await setup();
+  const bytes = new Uint8Array([0, 255, 128, 1, 254, 77]);
+  const added = await addMedia(db, { filename: 'cat.png', mime: 'image/png', data: bytes.buffer });
+  await addNote(db, {
+    noteTypeId: basic.id,
+    deckId: deck.id,
+    fields: { Front: `<img src="${mediaUrl(added.file.id)}">`, Back: 'a cat' },
+  });
+
+  // Through JSON, as a real backup file would be.
+  const wire = JSON.parse(JSON.stringify(await exportCollection(db)));
+  assert.equal(wire.media.length, 1);
+  assert.equal(typeof wire.media[0].data, 'string', 'bytes travel base64-encoded');
+
+  const fresh = new MemoryDb();
+  const summary = await importCollection(fresh, wire, 'replace');
+  assert.equal(summary.media, 1);
+
+  const restored = await fresh.media.get(added.file.id);
+  assert.ok(restored, 'the file came back');
+  assert.deepEqual(new Uint8Array(restored.data), bytes, 'and the bytes are identical');
+  assert.equal(restored.filename, 'cat.png');
+  assert.equal(restored.mime, 'image/png');
+});
+
+test('an older backup with no media section still imports', async () => {
+  // Export format 1 predates media entirely.
+  const db = new MemoryDb();
+  const summary = await importCollection(
+    db,
+    { format: EXPORT_FORMAT, version: 1, decks: [{ id: 'd', name: 'D' }] },
+    'replace',
+  );
+  assert.equal(summary.media, 0);
+  assert.equal(summary.decks, 1);
+});
+
+test('a backup with a malformed media entry is refused', () => {
+  assert.throws(
+    () =>
+      validateExport({
+        format: EXPORT_FORMAT,
+        version: 2,
+        media: [{ id: 'x', filename: 'x.png', data: 12345 }],
+      }),
+    /has no content/,
+  );
+});
+
+test('merging a backup does not duplicate media, since ids are content hashes', async () => {
+  const { db } = await setup();
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  await addMedia(db, { filename: 'a.png', mime: 'image/png', data: bytes.buffer });
+
+  const wire = JSON.parse(JSON.stringify(await exportCollection(db)));
+  const summary = await importCollection(db, wire, 'merge');
+
+  assert.equal(summary.media, 0, 'the identical file is already there');
+  assert.equal(await db.media.count(), 1);
 });

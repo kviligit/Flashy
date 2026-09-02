@@ -660,3 +660,44 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 .install-hint ol { margin: 0 0 10px; padding-left: 20px; color: var(--text-dim); font-size: 0.9rem; }
 .install-hint li { margin-bottom: 3px; }
 .install-hint .why { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; }
+
+/* --- Media in cards ----------------------------------------------- */
+
+.field-editor .field-label { font-size: 0.85rem; color: var(--text-dim); }
+.field-editor textarea.drop-target { border-color: var(--accent); background: var(--surface-2); }
+
+.review-content img,
+.preview-card img {
+  max-width: 100%;
+  /* Cap the height too, or a portrait photo pushes the answer buttons off
+     the screen on a phone. */
+  max-height: 42vh;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.review-content audio,
+.preview-card audio { width: 100%; max-width: 20rem; margin: 8px auto; display: block; }
+
+/* A file that has gone missing should look wrong, not merely absent. */
+[data-media-missing] {
+  display: inline-block;
+  min-width: 90px;
+  min-height: 34px;
+  border: 1px dashed var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.media-row td.thumb { width: 64px; }
+.media-row img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--surface-3);
+}
+.media-row.unused { color: var(--text-faint); }

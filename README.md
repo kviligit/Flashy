@@ -10,7 +10,7 @@
 > **What that is worth.** The FSRS implementation is ported from the
 > reference Rust implementation and pinned by two golden vectors taken from
 > that project's own test suite, so the algorithm is not improvised. There
-> are 203 unit tests and 43 end-to-end checks against a real browser, and
+> are 230 unit tests and 57 end-to-end checks against a real browser, and
 > the storage layer is verified against both of its backends. Several real
 > bugs were caught that way and are recorded in the commit history.
 >
@@ -134,6 +134,20 @@ hood but have no "Add to Home Screen".
 Even so: take a backup occasionally. Import & export writes a complete
 copy, review history included.
 
+### Images and sounds
+
+Attach files to a note while editing: use the **Attach…** button, drag a
+file onto a field, or paste a screenshot. They are stored in the collection
+itself and included in backups, so a restore brings them back with
+everything else.
+
+Files are content-addressed, so pasting the same diagram onto twenty cards
+stores it once. Nothing is reference-counted: which files are in use is
+derived from the notes whenever it is asked, and **Import & export → Images
+& sounds** lists everything with its usage and reclaims what nothing refers
+to any more. Deleting a note deliberately does *not* delete its files —
+another note may share them.
+
 ### Syncing between devices
 
 Not implemented, and deliberately not designed. What *is* in place is the
@@ -175,8 +189,8 @@ to run on fewer than 100 dated reviews.
 ## Testing
 
 ```
-npm test    203 unit tests
-npm run e2e  43 end-to-end checks in a real browser
+npm test    230 unit tests
+npm run e2e  57 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:

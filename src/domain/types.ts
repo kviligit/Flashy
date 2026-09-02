@@ -257,4 +257,27 @@ export interface Deletion extends Entity {
   deletedAt: number;
 }
 
-export const SCHEMA_VERSION = 2;
+/**
+ * A stored image or sound.
+ *
+ * The id is a content hash, so adding the same file twice stores it once —
+ * which matters when the natural way to build a deck is to paste one
+ * diagram onto twenty cards.
+ *
+ * Bytes are held as an ArrayBuffer rather than a Blob: both IndexedDB and
+ * structuredClone handle it everywhere, including in the in-memory backend
+ * under Node, which a Blob does not reliably survive.
+ */
+export interface MediaFile extends Entity {
+  /** Content hash. */
+  id: string;
+  /** The name it was added under, preserved for exports. */
+  filename: string;
+  mime: string;
+  size: number;
+  data: ArrayBuffer;
+  created: number;
+  modified: number;
+}
+
+export const SCHEMA_VERSION = 3;

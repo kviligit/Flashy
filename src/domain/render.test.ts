@@ -249,3 +249,17 @@ test('a card is not generated from a template referencing a deleted field', () =
   const stripped = { ...nt, fields: [{ name: 'Front' }] };
   assert.deepEqual(generateOrds(stripped, { Front: 'a' }), [0]);
 });
+
+test('a question that is only an image is not blank', () => {
+  // Stripping tags from an image-only card leaves nothing, and treating
+  // that as blank would refuse to create the card at all.
+  assert.ok(!isBlankQuestion('<img src="flashy-media:abc">'));
+  assert.ok(!isBlankQuestion('<audio src="flashy-media:abc"></audio>'));
+  assert.ok(!isBlankQuestion('  <img src="x.png">  '));
+  assert.ok(isBlankQuestion('<div></div>'), 'an empty container still counts as blank');
+});
+
+test('a note whose only content is an image still generates a card', () => {
+  const nt = basicNoteType();
+  assert.deepEqual(generateOrds(nt, { Front: '<img src="flashy-media:abc">', Back: 'answer' }), [0]);
+});

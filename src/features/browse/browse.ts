@@ -7,7 +7,9 @@ import { confirmModal, modal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
-import { cardPreview } from '../../domain/cards.js';
+import { cardPreview, renderCard } from '../../domain/cards.js';
+import { MediaResolver } from '../../ui/media-resolver.js';
+import { deferMediaSrc } from '../../domain/media.js';
 import { deleteNotes, setCardDeck } from '../../collection/notes.js';
 import { stripHtml } from '../../domain/render.js';
 import type { Card, Deck, Note, NoteType } from '../../domain/types.js';
@@ -39,16 +41,40 @@ export function browse(ctx: AppContext, initialQuery = ''): HTMLElement {
   const root = el('section', {});
   let query = initialQuery;
   let deckFilter = '';
-  let selected = new Set<string>();
+  /**
+   * The selection is mutated in place and never replaced.
+   *
+   * Each row's checkbox handler closes over this object, so swapping in a
+   * new Set on every draw would strand the handlers of any row rendered
+   * before the swap: ticking a box would mutate a Set nothing reads any
+   * more, and the tick would vanish. Bulk actions then operate on a
+   * selection that is not the one on screen — which, for delete, means
+   * removing the wrong notes.
+   */
+  const selected = new Set<string>();
+
+  /**
+   * Drawing reads the database, so two draws started in quick succession —
+   * ticking two checkboxes, say — can finish out of order and leave the
+   * screen showing the older one's state. That is not merely cosmetic
+   * here: the bulk actions act on the selection captured by whichever
+   * render is on screen, so a stale render means deleting the wrong notes.
+   * A token makes the loser of a race stand down.
+   */
+  let drawToken = 0;
 
   const refresh = (): void => void draw();
 
   const draw = async (): Promise<void> => {
+    const token = ++drawToken;
     const rows = await loadRows(ctx);
+    if (token !== drawToken) return;
     const visible = rows.filter((row) => matches(row, query, deckFilter));
-    // Drop selections that the current filter hides, so bulk actions only
-    // ever touch what the user can see.
-    selected = new Set([...selected].filter((id) => visible.some((row) => row.card.id === id)));
+    // Drop selections the current filter hides, so bulk actions only ever
+    // touch what the user can see — pruned in place, never replaced.
+    for (const id of [...selected]) {
+      if (!visible.some((row) => row.card.id === id)) selected.delete(id);
+    }
 
     const decks = [...new Set(rows.map((row) => row.deck.name))].sort();
 
@@ -351,6 +377,20 @@ async function cardInfo(ctx: AppContext, row: Row): Promise<void> {
     (a, b) => b.reviewedAt - a.reviewedAt,
   );
 
+  // A rendered preview, with any attached media resolved for the dialog's
+  // lifetime and released when it closes.
+  const media = new MediaResolver(ctx.db);
+  const rendered = renderCard(row.noteType, row.note.fields, row.card.ord);
+  const preview = el(
+    'div.col',
+    {},
+    el('div.preview-label', { text: 'Front' }),
+    el('div.preview-card', { html: deferMediaSrc(rendered.question) }),
+    el('div.preview-label', { text: 'Back' }),
+    el('div.preview-card', { html: deferMediaSrc(rendered.answer) }),
+  );
+  void media.resolve(preview);
+
   const stat = (label: string, value: string) =>
     el('tr', {}, el('th', { text: label }), el('td', { text: value }));
 
@@ -362,6 +402,7 @@ async function cardInfo(ctx: AppContext, row: Row): Promise<void> {
     body: el(
       'div.col',
       {},
+      preview,
       el(
         'table',
         {},
@@ -417,4 +458,6 @@ async function cardInfo(ctx: AppContext, row: Row): Promise<void> {
           ),
     ),
   });
+
+  media.dispose();
 }

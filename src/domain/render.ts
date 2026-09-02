@@ -169,7 +169,20 @@ function hasContent(value: string): boolean {
   return stripHtml(value).length > 0;
 }
 
-/** True when a rendered question is blank, meaning no card should exist. */
+/**
+ * Elements that are content in their own right, even with no text around
+ * them. A card whose front is a single picture is a perfectly good card.
+ */
+const EMBEDDED_CONTENT = /<\s*(img|audio|video|svg|object|embed|iframe)\b/i;
+
+/**
+ * True when a rendered question is blank, meaning no card should exist.
+ *
+ * Text is not the only kind of content: stripping the tags from an
+ * image-only card leaves an empty string, and treating that as blank would
+ * refuse to create the card at all.
+ */
 export function isBlankQuestion(rendered: string): boolean {
+  if (EMBEDDED_CONTENT.test(rendered)) return false;
   return stripHtml(rendered).length === 0;
 }

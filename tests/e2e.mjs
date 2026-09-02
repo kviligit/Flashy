@@ -12,9 +12,11 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const FIXTURES = fileURLToPath(new URL('./fixtures/', import.meta.url));
 const PORT = Number(process.env.PORT ?? 5199);
 const BASE = `http://127.0.0.1:${PORT}/index.html`;
 
@@ -237,6 +239,210 @@ async function run(playwright) {
     check('every button has an accessible name', unnamed === 0, `${unnamed} unnamed`);
     check('there is a skip link', (await page.locator('.skip-link').count()) === 1);
     check('the main region is addressable', (await page.locator('main#main').count()) === 1);
+
+    // --- media ---
+    // Attaching a file, seeing it decoded on a real card, and getting it
+    // back after a restore. An image that survives everything except the
+    // backup would be the worst kind of bug: invisible until it matters.
+    await page.goto(`${BASE}#/add`);
+    await page.waitForSelector('textarea[data-field]');
+    await page.selectOption('select', { label: 'Basic' });
+    await page.fill('textarea[data-field="Back"]', 'a red square');
+    await page.setInputFiles('[data-media-input="Front"]', `${FIXTURES}red.png`);
+    await page.waitForTimeout(400);
+
+    const inserted = await page.inputValue('textarea[data-field="Front"]');
+    check('attaching inserts a media reference', /^<img src="flashy-media:[0-9a-f]{32}"/.test(inserted), inserted);
+    check(
+      'an image-only field still produces a card',
+      (await page.getAttribute('[data-card-count]', 'data-card-count')) === '1',
+    );
+
+    const previewed = await page.locator('[data-preview="question"] img').evaluate((node) => ({
+      blob: node.getAttribute('src').startsWith('blob:'),
+      width: node.naturalWidth,
+    }));
+    check('the preview shows a decoded image', previewed.blob && previewed.width === 8, JSON.stringify(previewed));
+
+    // The same bytes under a different name must not be stored twice.
+    await page.setInputFiles('[data-media-input="Back"]', `${FIXTURES}red.png`);
+    await page.waitForTimeout(400);
+    await page.click('button:has-text("Add note")');
+    await page.waitForTimeout(300);
+
+    await page.fill('textarea[data-field="Front"]', 'a sound');
+    await page.setInputFiles('[data-media-input="Back"]', `${FIXTURES}beep.wav`);
+    await page.waitForTimeout(400);
+    await page.click('button:has-text("Add note")');
+    await page.waitForTimeout(300);
+
+    const mediaCount = await page.evaluate(async () => {
+      const request = indexedDB.open('flashy');
+      const db = await new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result);
+      });
+      return new Promise((resolve) => {
+        const query = db.transaction('media').objectStore('media').count();
+        query.onsuccess = () => resolve(query.result);
+      });
+    });
+    check('identical files are stored once', mediaCount === 2, `saw ${mediaCount} files`);
+
+    await page.goto(`${BASE}#/manage`);
+    await page.waitForSelector('[data-card="media"]');
+    check('the media manager lists every file', (await page.locator('[data-media]').count()) === 2);
+    const summary = await page.locator('[data-card="media"] p.muted').innerText();
+    check('the media manager reports usage', /Every file is in use/.test(summary), summary);
+
+    const [mediaBackup] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('[data-action="export-backup"]'),
+    ]);
+    const mediaBackupPath = join(scratch, 'media-backup.json');
+    await mediaBackup.saveAs(mediaBackupPath);
+    const withMedia = JSON.parse(readFileSync(mediaBackupPath, 'utf8'));
+    check('the backup carries the media', withMedia.media.length === 2, `saw ${withMedia.media.length}`);
+    check('media bytes travel as base64', typeof withMedia.media[0].data === 'string');
+
+    await page.goto(`${BASE}#/debug/sample`);
+    await page.waitForSelector('button:has-text("Wipe collection")');
+    await page.click('button:has-text("Wipe collection")');
+    await page.click('.modal footer button.danger');
+    await page.waitForTimeout(700);
+
+    await page.goto(`${BASE}#/manage`);
+    await page.waitForSelector('[data-role="backup-file"]', { state: 'attached' });
+    await page.setInputFiles('[data-role="backup-file"]', mediaBackupPath);
+    await page.click('.modal footer button.danger');
+    await page.waitForTimeout(1200);
+
+    // Find the note with the image rather than assuming it is first in the
+    // queue — after a restore the collection holds everything, and the
+    // queue order is the scheduler's business, not this test's.
+    await page.goto(`${BASE}#/browse`);
+    await page.waitForSelector('table.browse tbody tr');
+    await page.fill('input[type="search"]', 'red square');
+    await page.waitForTimeout(200);
+    await page.locator('table.browse tbody tr button:has-text("Info")').first().click();
+    await page.waitForSelector('.modal .preview-card');
+    const restoredImage = await page
+      .locator('.modal .preview-card img')
+      .first()
+      .evaluate((node) => ({
+        blob: (node.getAttribute('src') ?? '').startsWith('blob:'),
+        width: node.naturalWidth,
+      }));
+    check(
+      'a restored image still decodes on a card',
+      restoredImage.blob && restoredImage.width === 8,
+      JSON.stringify(restoredImage),
+    );
+    await page.click('.modal footer button');
+    await page.waitForTimeout(200);
+
+    // Deleting the notes should leave the files orphaned but present, and
+    // the manager should then be able to reclaim them.
+    await page.goto(`${BASE}#/browse`);
+    await page.waitForSelector('table.browse tbody tr');
+    // Navigating to the hash we are already on fires no hashchange, so the
+    // route is not rebuilt and the previous search is still in force.
+    // Clear it explicitly rather than assuming a fresh view.
+    await page.fill('input[type="search"]', '');
+    await page.waitForTimeout(300);
+
+    // Every note, so that both files are genuinely orphaned — picking two
+    // rows at random leaves whichever media the other note still uses.
+    //
+    // Wait for the table to match the count the page reports before
+    // counting rows: reading mid-redraw sees a partial table, ticks a
+    // fraction of it, and then "delete everything" quietly deletes one
+    // thing.
+    const expectedRows = Number(await page.getAttribute('[data-count]', 'data-count'));
+    await page.waitForFunction(
+      (n) => document.querySelectorAll('table.browse tbody tr').length === n,
+      expectedRows,
+      { timeout: 5000 },
+    );
+
+    const boxes = page.locator('table.browse tbody tr input[type="checkbox"]');
+    const rowCount = await boxes.count();
+    check('the browser lists every card before selecting', rowCount === expectedRows, `${rowCount} of ${expectedRows}`);
+    for (let i = 0; i < rowCount; i++) await boxes.nth(i).check();
+
+    // The count the toolbar reports is the selection the bulk actions will
+    // act on. If a tick is registered against a selection that a re-render
+    // has already replaced, the two diverge and delete removes the wrong
+    // notes — silently. Redrawing is asynchronous, so wait for the count to
+    // settle rather than reading it mid-flight.
+    let reported = '';
+    try {
+      await page.waitForFunction(
+        (expected) =>
+          document.querySelector('.browse-toolbar strong')?.textContent === `${expected} selected`,
+        rowCount,
+        { timeout: 5000 },
+      );
+      reported = `${rowCount} selected`;
+    } catch {
+      reported = (await page.locator('.browse-toolbar strong').innerText().catch(() => 'nothing')) || 'nothing';
+    }
+    check(
+      'every ticked row is actually selected',
+      reported === `${rowCount} selected`,
+      `${rowCount} ticked, toolbar says "${reported}"`,
+    );
+
+    await page.click('button:has-text("Delete notes…")');
+    await page.waitForSelector('.modal');
+    const confirmText = (await page.locator('.modal .body').innerText()).replace(/\n/g, ' ');
+    await page.click('.modal footer button.danger');
+    await page.waitForTimeout(800);
+
+    const afterDelete = await page.evaluate(async () => {
+      const request = indexedDB.open('flashy');
+      const db = await new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result);
+      });
+      return new Promise((resolve) => {
+        const query = db.transaction('notes').objectStore('notes').count();
+        query.onsuccess = () => resolve(query.result);
+      });
+    });
+    check(
+      'deleting the whole selection removes every note',
+      afterDelete === 0,
+      `${afterDelete} left after "${confirmText}" (${rowCount} cards selected)`,
+    );
+
+    await page.goto(`${BASE}#/manage`);
+    await page.waitForSelector('[data-card="media"]');
+    const orphanSummary = await page.locator('[data-card="media"] p.muted').innerText();
+    check('orphaned files are reported, not silently deleted', /no longer used/.test(orphanSummary), orphanSummary);
+
+    await page.click('[data-action="cleanup-media"]');
+    await page.click('.modal footer button.danger');
+    await page.waitForTimeout(800);
+
+    // Read the database rather than counting rows: whether the files are
+    // gone is the actual claim, and the table is redrawn asynchronously.
+    const afterCleanup = await page.evaluate(async () => {
+      const request = indexedDB.open('flashy');
+      const db = await new Promise((resolve) => {
+        request.onsuccess = () => resolve(request.result);
+      });
+      const readAll = (store) =>
+        new Promise((resolve) => {
+          const query = db.transaction(store).objectStore(store).getAll();
+          query.onsuccess = () => resolve(query.result);
+        });
+      const [media, notes] = await Promise.all([readAll('media'), readAll('notes')]);
+      return { media: media.length, notes: notes.length };
+    });
+    check(
+      'cleanup reclaims the orphans',
+      afterCleanup.media === 0,
+      `${afterCleanup.media} file(s) left, ${afterCleanup.notes} note(s) remain`,
+    );
 
     // --- schema migration ---
     // A collection created by v1 must survive the upgrade to v2 with its

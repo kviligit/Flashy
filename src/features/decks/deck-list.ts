@@ -28,9 +28,14 @@ export function deckList(ctx: AppContext): HTMLElement {
   return root;
 }
 
+/** See the note in the browser: a slow draw must not overwrite a newer one. */
+let deckDrawToken = 0;
+
 async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
+  const token = ++deckDrawToken;
   const decks = await ctx.db.decks.getAll();
   const counts = await ctx.scheduler.allDeckCounts();
+  if (token !== deckDrawToken) return;
   const tree = buildDeckTree(decks);
   const visible = flattenDeckTree(tree);
 

@@ -18,7 +18,7 @@ import {
 } from './types.js';
 
 export const DB_NAME = 'flashy';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 function toKeyRange(range: Range): IDBKeyRange | null {
   const { lower, upper, lowerOpen = false, upperOpen = false } = range;
@@ -184,6 +184,11 @@ function upgrade(db: IDBDatabase, oldVersion: number, tx: IDBTransaction | null)
     ensureStore('deletions');
     for (const name of STORE_NAMES) ensureIndexes(name);
   }
+
+  if (oldVersion < 3) {
+    // Images and sounds attached to notes.
+    ensureStore('media');
+  }
 }
 
 export class IdbDb implements Db {
@@ -194,6 +199,7 @@ export class IdbDb implements Db {
   readonly cards: Db['cards'];
   readonly reviewLogs: Db['reviewLogs'];
   readonly meta: Db['meta'];
+  readonly media: Db['media'];
   readonly deletions: Db['deletions'];
 
   private constructor(private readonly raw: IDBDatabase) {
@@ -204,6 +210,7 @@ export class IdbDb implements Db {
     this.cards = new IdbStore(raw, 'cards') as Db['cards'];
     this.reviewLogs = new IdbStore(raw, 'reviewLogs') as Db['reviewLogs'];
     this.meta = new IdbStore(raw, 'meta') as Db['meta'];
+    this.media = new IdbStore(raw, 'media') as Db['media'];
     this.deletions = new IdbStore(raw, 'deletions') as Db['deletions'];
   }
 

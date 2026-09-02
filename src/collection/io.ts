@@ -7,6 +7,7 @@
  */
 
 import { generateOrds, makeCard } from '../domain/cards.js';
+import { fromBase64, toBase64 } from '../domain/media.js';
 import { makeDeck } from '../domain/defaults.js';
 import { newId } from '../domain/id.js';
 import { stripHtml } from '../domain/render.js';
@@ -15,6 +16,7 @@ import type {
   Card,
   Deck,
   DeckConfig,
+  MediaFile,
   Meta,
   Note,
   NoteType,
@@ -25,7 +27,26 @@ import { completeFields, nextPosition, normaliseTags } from './notes.js';
 import { parseCsv, sniffDelimiter, toCsv } from './csv.js';
 
 export const EXPORT_FORMAT = 'flashy-collection';
-export const EXPORT_VERSION = 1;
+export const EXPORT_VERSION = 2;
+
+/**
+ * A media file inside a backup.
+ *
+ * JSON cannot carry an ArrayBuffer, so the bytes travel base64-encoded.
+ * That inflates them by about a third, which is the price of a backup that
+ * is a single self-contained file rather than a file plus a folder that can
+ * be separated from it.
+ */
+export interface MediaFileExport {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+  /** base64-encoded bytes. */
+  data: string;
+  created: number;
+  modified: number;
+}
 
 export interface CollectionExport {
   format: typeof EXPORT_FORMAT;
@@ -39,11 +60,13 @@ export interface CollectionExport {
   cards: Card[];
   reviewLogs: ReviewLog[];
   meta: Meta[];
+  /** Added in export format 2; absent in older backups. */
+  media: MediaFileExport[];
 }
 
 /** Everything, exactly as stored. */
 export async function exportCollection(db: Db): Promise<CollectionExport> {
-  const [decks, deckConfigs, noteTypes, notes, cards, reviewLogs, meta] = await Promise.all([
+  const [decks, deckConfigs, noteTypes, notes, cards, reviewLogs, meta, media] = await Promise.all([
     db.decks.getAll(),
     db.deckConfigs.getAll(),
     db.noteTypes.getAll(),
@@ -51,6 +74,7 @@ export async function exportCollection(db: Db): Promise<CollectionExport> {
     db.cards.getAll(),
     db.reviewLogs.getAll(),
     db.meta.getAll(),
+    db.media.getAll(),
   ]);
 
   return {
@@ -65,6 +89,31 @@ export async function exportCollection(db: Db): Promise<CollectionExport> {
     cards,
     reviewLogs,
     meta,
+    media: media.map(encodeMedia),
+  };
+}
+
+function encodeMedia(file: MediaFile): MediaFileExport {
+  return {
+    id: file.id,
+    filename: file.filename,
+    mime: file.mime,
+    size: file.size,
+    data: toBase64(file.data),
+    created: file.created,
+    modified: file.modified,
+  };
+}
+
+function decodeMedia(file: MediaFileExport): MediaFile {
+  return {
+    id: file.id,
+    filename: file.filename,
+    mime: file.mime,
+    size: file.size,
+    data: fromBase64(file.data),
+    created: file.created,
+    modified: file.modified,
   };
 }
 
@@ -75,6 +124,7 @@ export interface ImportSummary {
   notes: number;
   cards: number;
   reviewLogs: number;
+  media: number;
   /** Records skipped because an id already existed (merge mode only). */
   skipped: number;
 }
@@ -104,6 +154,7 @@ export async function importCollection(
     notes: 0,
     cards: 0,
     reviewLogs: 0,
+    media: 0,
     skipped: 0,
   };
 
@@ -129,6 +180,9 @@ export async function importCollection(
   await put(db.notes, parsed.notes, 'notes');
   await put(db.cards, parsed.cards, 'cards');
   await put(db.reviewLogs, parsed.reviewLogs, 'reviewLogs');
+  // Media before nothing in particular — ids are content hashes, so a
+  // merge can never produce a conflicting file under the same id.
+  await put(db.media, parsed.media.map(decodeMedia), 'media');
 
   // Meta is collection-wide, so a merge keeps the collection's own.
   if (mode === 'replace') await db.meta.putMany(parsed.meta);
@@ -171,6 +225,7 @@ export function validateExport(data: unknown): CollectionExport {
     cards: arrayField<Card>('cards'),
     reviewLogs: arrayField<ReviewLog>('reviewLogs'),
     meta: arrayField<Meta>('meta'),
+    media: arrayField<MediaFileExport>('media'),
   };
 
   for (const [name, list] of Object.entries(parsed)) {
@@ -184,6 +239,12 @@ export function validateExport(data: unknown): CollectionExport {
 
   if (parsed.notes.length > 0 && parsed.noteTypes.length === 0) {
     throw new Error('Backup contains notes but no note types.');
+  }
+
+  for (const file of parsed.media) {
+    if (typeof file.data !== 'string') {
+      throw new Error(`Backup media file "${file.filename ?? file.id}" has no content.`);
+    }
   }
 
   return parsed;
