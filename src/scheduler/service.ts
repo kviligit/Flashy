@@ -8,6 +8,7 @@
  */
 
 import { newId } from '../domain/id.js';
+import { fuzzFor } from './fuzz.js';
 import { isDeckOrDescendant } from '../domain/decks.js';
 import {
   LeechAction,
@@ -252,7 +253,10 @@ export class Scheduler {
     return fsrsSchedule(Scheduler.fsrsConfig(config), toSchedulingCard(card), {
       now,
       elapsedDays: elapsedStudyDays(card.lastReview, now, this.cutoffHour),
-      random: this.random,
+      // Seeded from the card, not from Math.random, so that this — the
+      // number shown on the answer button — is the number `answerCard`
+      // arrives at when the button is pressed.
+      random: fuzzFor(card),
     });
   }
 
@@ -273,7 +277,9 @@ export class Scheduler {
     const result = fsrsAnswer(Scheduler.fsrsConfig(config), toSchedulingCard(card), rating, {
       now,
       elapsedDays,
-      random: this.random,
+      // The same seed choicesFor used, so the interval the user was shown
+      // is the interval they get.
+      random: fuzzFor(card),
     });
 
     let updated: Card = {
