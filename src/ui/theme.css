@@ -630,6 +630,72 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 
   .modal { max-height: 92vh; }
 
+  /* A row of buttons that does not fit takes the page sideways with it.
+     Wrapping costs nothing where there is room and is the difference
+     between a usable settings page and one that scrolls off to the right. */
+  .row { flex-wrap: wrap; }
+
+  /*
+   * Any table marked `stacks` becomes a list of labelled rows.
+   *
+   * The same problem the browser had, in three more places: a table with
+   * five or six columns cannot fit a 375px screen, so it either scrolls
+   * sideways or drags the whole page with it. Settings did the latter by
+   * 140px, the stats page by 29.
+   *
+   * The pattern is the standard one — each cell carries the heading it
+   * belongs under in `data-label`, and on a narrow screen that label is
+   * rendered beside the value instead of once at the top of a column.
+   * Nothing is hidden, and it degrades to a plain table the moment there
+   * is room for one.
+   */
+  table.stacks,
+  table.stacks tbody,
+  table.stacks tr,
+  table.stacks td { display: block; }
+
+  table.stacks thead { display: none; }
+
+  table.stacks tr {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  table.stacks tr:last-child { border-bottom: none; }
+
+  table.stacks td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--gap);
+    padding: 2px 0;
+    border: none;
+    text-align: right;
+  }
+  table.stacks td::before {
+    content: attr(data-label);
+    color: var(--text-faint);
+    font-size: 0.8rem;
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  /* The first cell is the row's name, so it reads as a heading rather than
+     as one more label/value pair. */
+  table.stacks td:first-child {
+    justify-content: flex-start;
+    text-align: left;
+    font-weight: 600;
+    padding-bottom: 4px;
+  }
+  table.stacks td:first-child::before { content: none; }
+
+  /* An actions cell has no label and should not pretend to have a value. */
+  table.stacks td.actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    padding-top: 6px;
+  }
+  table.stacks td.actions::before { content: none; }
+
   /*
    * On a phone the browser stops being a table.
    *

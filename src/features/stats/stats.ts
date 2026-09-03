@@ -308,7 +308,7 @@ function answerButtonsCard(logs: readonly ReviewLog[], since: number): HTMLEleme
     total === 0
       ? el('div.empty', { text: 'No answers yet in this period.' })
       : el(
-          'table',
+          'table.stacks',
           {},
           el(
             'thead',
@@ -330,11 +330,14 @@ function answerButtonsCard(logs: readonly ReviewLog[], since: number): HTMLEleme
                 'tr',
                 {},
                 el('td', { text: RATING_LABEL[rating] }),
-                el('td', { text: String(row.learning) }),
-                el('td', { text: String(row.young) }),
-                el('td', { text: String(row.mature) }),
-                el('td', { text: String(row.total) }),
-                el('td.muted', { text: `${((row.total / total) * 100).toFixed(1)}%` }),
+                el('td', { 'data-label': 'Learning', text: String(row.learning) }),
+                el('td', { 'data-label': 'Young', text: String(row.young) }),
+                el('td', { 'data-label': 'Mature', text: String(row.mature) }),
+                el('td', { 'data-label': 'Total', text: String(row.total) }),
+                el('td.muted', {
+                  'data-label': 'Share',
+                  text: `${((row.total / total) * 100).toFixed(1)}%`,
+                }),
               );
             }),
           ),
