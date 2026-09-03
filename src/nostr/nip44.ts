@@ -19,8 +19,8 @@
  * Verified against the official vectors from paulmillr/nip44.
  */
 
-import { chacha20 } from './chacha20.js';
-import { sharedSecret } from './secp256k1.js';
+import { chacha20 } from './primitives.js';
+import { sharedSecret } from './primitives.js';
 
 const MIN_PLAINTEXT = 1;
 const MAX_PLAINTEXT = 0xffff;

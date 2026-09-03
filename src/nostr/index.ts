@@ -19,9 +19,9 @@ export {
   sha256,
   sharedSecret,
   taggedHash,
-} from './secp256k1.js';
+} from './primitives.js';
 
-export { chacha20 } from './chacha20.js';
+export { chacha20 } from './primitives.js';
 
 export {
   conversationKey,

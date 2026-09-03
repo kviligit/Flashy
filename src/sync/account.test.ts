@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { nsecEncode, npubEncode } from '../nostr/nip19.js';
-import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/primitives.js';
 import {
   createLocalKey,
   forgetIdentity,

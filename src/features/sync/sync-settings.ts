@@ -13,6 +13,7 @@ import { confirmModal, modal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
 import type { AppContext } from '../../app/context.js';
 import { abbreviate, detectNip07, npubEncode, nsecEncode } from '../../nostr/index.js';
+import { PRIMITIVES_ARE_HAND_WRITTEN } from '../../nostr/primitives.js';
 import {
   createLocalKey,
   defaultStore,
@@ -64,8 +65,20 @@ function warningCard(): HTMLElement {
     el('h3', { text: 'Read this first' }),
     el('p', {
       text:
-        'Sync sends your collection to nostr relays — servers run by strangers. The contents are encrypted so only your key can read them, but the encryption here was written from scratch for this app, has been checked only against the specifications’ own test vectors, and has never been audited. Treat it as better than nothing, not as proven.',
+        'Sync sends your collection to nostr relays — servers run by strangers. The contents are encrypted so only your key can read them.',
     }),
+
+    // Driven by the flag rather than written out here, so that replacing
+    // the hand-written primitives with an audited library removes this
+    // warning in the same edit. A warning that outlives its reason
+    // teaches people to ignore warnings.
+    PRIMITIVES_ARE_HAND_WRITTEN
+      ? el('p', {
+          style: { color: 'var(--danger)' },
+          text:
+            'The encryption itself was written from scratch for this app, because the environment it was built in could not install a library. It passes every test vector its specifications publish, and that is not the same as being safe: it is not constant-time, and nobody has reviewed it as cryptography. Do not rely on this to protect anything that would matter if it were read.',
+        })
+      : null,
     el('p', {
       text:
         'The fact that you sync is public. Relays index events by author, so anyone who knows your public key can ask any relay when you studied, from how many devices, and roughly how much changed each time — not just the relay operator. The contents stay unreadable; the pattern does not.',

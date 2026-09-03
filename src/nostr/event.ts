@@ -18,7 +18,7 @@ import {
   schnorrSign,
   schnorrVerify,
   sha256,
-} from './secp256k1.js';
+} from './primitives.js';
 
 /** An event before it has an id or a signature. */
 export interface UnsignedEvent {

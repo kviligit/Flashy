@@ -18,7 +18,7 @@ import { addNote } from '../collection/notes.js';
 import { addMedia } from '../collection/media.js';
 import type { Deletion, NoteType, ReviewLog } from '../domain/types.js';
 import { hashContent } from '../domain/media.js';
-import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/primitives.js';
 import { LocalSigner } from '../nostr/signer.js';
 import { FakeRelay } from '../nostr/fake-relay.js';
 import { Relay } from '../nostr/relay.js';

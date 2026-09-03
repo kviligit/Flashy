@@ -7,7 +7,7 @@ import { addMedia } from '../collection/media.js';
 import { Scheduler } from '../scheduler/index.js';
 import { Rating } from '../fsrs/index.js';
 import type { DeckConfig, NoteType } from '../domain/types.js';
-import { bytesToHex, generateSecretKey, getPublicKey } from '../nostr/secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey } from '../nostr/primitives.js';
 import { LocalSigner } from '../nostr/signer.js';
 import { FakeRelay } from '../nostr/fake-relay.js';
 import { Relay } from '../nostr/relay.js';

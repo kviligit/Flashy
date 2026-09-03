@@ -22,7 +22,7 @@
 
 import { signEvent as signLocally, type NostrEvent, type UnsignedEvent } from './event.js';
 import { conversationKey, decrypt as decryptLocally, encrypt as encryptLocally } from './nip44.js';
-import { bytesToHex, getPublicKey, hexToBytes } from './secp256k1.js';
+import { bytesToHex, getPublicKey, hexToBytes } from './primitives.js';
 
 export interface Signer {
   /** How the key is held, so the UI can say so honestly. */

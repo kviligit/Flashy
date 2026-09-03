@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { verifyEvent, type UnsignedEvent } from './event.js';
-import { bytesToHex, generateSecretKey, getPublicKey } from './secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey } from './primitives.js';
 import { detectNip07, LocalSigner, Nip07Signer, type Nip07Provider } from './signer.js';
 
 const secretKey = generateSecretKey();

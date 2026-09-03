@@ -7,11 +7,12 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "npm run clean && tsc && node --test \"dist/**/*.test.js\"",
+    "test": "npm run clean && tsc && node tests/architecture.mjs && node --test \"dist/**/*.test.js\"",
     "dev": "tsc && python3 -m http.server 5173",
     "clean": "rm -rf dist",
     "e2e": "npm run clean && tsc && node tests/e2e.mjs",
-    "check": "npm test && npm run e2e"
+    "check": "npm test && npm run e2e",
+    "arch": "node tests/architecture.mjs"
   },
   "devDependencies": {
     "typescript": "6.0.2"

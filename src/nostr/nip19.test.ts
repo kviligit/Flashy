@@ -10,7 +10,7 @@ import {
   toPublicKeyHex,
   toSecretKeyHex,
 } from './nip19.js';
-import { bytesToHex, generateSecretKey, getPublicKey } from './secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey } from './primitives.js';
 
 /**
  * The vectors from NIP-19 itself.

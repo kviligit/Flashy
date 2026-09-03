@@ -23,7 +23,7 @@
  */
 
 import { toPublicKeyHex, toSecretKeyHex } from '../nostr/nip19.js';
-import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey, hexToBytes } from '../nostr/primitives.js';
 import { detectNip07, LocalSigner, Nip07Signer, type Signer } from '../nostr/signer.js';
 
 const KEY_SECRET = 'flashy.sync.secretKey';

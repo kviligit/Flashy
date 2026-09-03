@@ -1012,9 +1012,19 @@ async function run(playwright) {
     // device because someone opened a settings page.
     await appPage.goto(`${BASE}#/sync`);
     await appPage.waitForSelector('[data-card="sync-identity"]');
+    const warning = await appPage.locator('[data-card="sync-warning"]').innerText();
     check(
       'the sync page leads with what it sends and to whom',
-      /never been audited/i.test(await appPage.locator('[data-card="sync-warning"]').innerText()),
+      /relays/i.test(warning) && /strangers|public/i.test(warning),
+      warning.slice(0, 70),
+    );
+    // The caveat is rendered from PRIMITIVES_ARE_HAND_WRITTEN rather than
+    // written into the page, so this fails the moment the flag and the
+    // code disagree — which is the point of driving it from a flag.
+    check(
+      'and says plainly that the crypto is hand-written while it still is',
+      /written from scratch/i.test(warning) && /constant-time/i.test(warning),
+      warning.slice(0, 70),
     );
     check(
       'sync is off until a key exists',

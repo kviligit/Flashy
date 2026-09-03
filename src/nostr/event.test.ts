@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { bytesToHex, generateSecretKey, getPublicKey } from './secp256k1.js';
+import { bytesToHex, generateSecretKey, getPublicKey } from './primitives.js';
 import {
   eventId,
   isWellFormed,

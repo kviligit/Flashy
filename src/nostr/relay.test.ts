@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { generateSecretKey, getPublicKey, bytesToHex } from './secp256k1.js';
+import { generateSecretKey, getPublicKey, bytesToHex } from './primitives.js';
 import { signEvent, type NostrEvent, type UnsignedEvent } from './event.js';
 import { FakeRelay } from './fake-relay.js';
 import { matchesFilter, Relay, RelayError } from './relay.js';
