@@ -876,6 +876,40 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   flex-wrap: wrap;
   padding-bottom: 2px;
 }
+
+/* --- Maths symbol palette ------------------------------------------ */
+
+.symbol-bar { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.symbol-bar > summary {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  /* A 44px row, so opening the palette is a comfortable tap. */
+  padding: 10px 0;
+  list-style-position: inside;
+}
+.symbol-bar[open] > summary { margin-bottom: 4px; }
+
+.symbol-group { margin-bottom: 8px; }
+.symbol-group-name {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+.symbol-keys { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* Square, and large enough to hit: the whole point is not having to aim
+   at a glyph on a phone keyboard. */
+.symbol-key {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+  font-variant-numeric: normal;
+}
 .snippet-bar button {
   padding: 4px 10px;
   font-size: 0.85rem;
