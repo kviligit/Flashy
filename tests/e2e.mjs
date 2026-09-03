@@ -650,6 +650,37 @@ async function run(playwright) {
     check('safe links survive and are given rel', kept.link.includes('rel="noopener noreferrer nofollow"'), kept.link);
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
+    // --- build label ---
+    // It exists so a user can say "I am on v28" and have that mean the
+    // code in their browser, so it is compiled in rather than fetched.
+    const build = await page.evaluate(() => {
+      const el = document.querySelector('.build');
+      return el ? { text: el.textContent.trim(), commit: el.getAttribute('data-build'), title: el.title } : null;
+    });
+    check('the topbar shows a build label', build !== null);
+    check(
+      'and it is an iteration number',
+      Boolean(build && /^v\d+\+?$/.test(build.text)),
+      build ? build.text : 'absent',
+    );
+    check(
+      'carrying the commit it was built from',
+      Boolean(build && /^[0-9a-f]{7}$/.test(build.commit || '')),
+      build ? String(build.commit) : 'absent',
+    );
+
+    await page.goto(`${BASE}#/settings`);
+    await page.waitForSelector('[data-card="build"]');
+    const buildCard = await page.locator('[data-card="build"]').innerText();
+    check(
+      'settings repeats it with the commit and build time',
+      build !== null && buildCard.includes(build.text) && buildCard.includes(build.commit),
+      buildCard.replace(/\s+/g, ' ').slice(0, 80),
+    );
+
+    await page.goto(`${BASE}#/`);
+    await page.waitForSelector('.deck-row');
+
     // --- Content-Security-Policy ---
     const csp = await page.evaluate(() => {
       const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');

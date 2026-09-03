@@ -2,3 +2,6 @@ dist/
 node_modules/
 *.log
 .DS_Store
+
+# Generated at build time by scripts/stamp-build.mjs.
+src/app/build-info.ts

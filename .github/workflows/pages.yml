@@ -42,7 +42,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the version label is a commit count, and a shallow
+      # clone would report 1.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -59,7 +63,7 @@ jobs:
         run: npm install --no-audit --no-fund --no-save typescript@6.0.2
 
       - name: Type-check and build
-        run: npx tsc
+        run: npm run build
 
       - name: Run the unit suite
         run: node --test "dist/**/*.test.js"
