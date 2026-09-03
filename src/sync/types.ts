@@ -51,7 +51,17 @@ export interface MergeCounts {
 export interface SyncResult {
   peerId: string;
   pulled: MergeCounts;
-  pushed: { upserts: number; deletions: number };
+  pushed: {
+    upserts: number;
+    deletions: number;
+    /**
+     * Records this round did not get to, because the push was capped.
+     *
+     * Non-zero means run another round; the watermark was left where those
+     * records are still above it.
+     */
+    remaining: number;
+  };
   /** Watermarks after this round. */
   lastPulledAt: number;
   lastPushedAt: number;

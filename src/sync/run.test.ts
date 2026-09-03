@@ -126,7 +126,7 @@ test('describeOutcome says something a person can read', () => {
   const base = {
     peerId: 'p',
     pulled: counts,
-    pushed: { upserts: 0, deletions: 0 },
+    pushed: { upserts: 0, deletions: 0, remaining: 0 },
     lastPulledAt: 0,
     lastPushedAt: 0,
   };
@@ -146,7 +146,7 @@ test('describeOutcome says something a person can read', () => {
       result: {
         ...base,
         pulled: { ...counts, applied: 3, conflicts: 1 },
-        pushed: { upserts: 2, deletions: 1 },
+        pushed: { upserts: 2, deletions: 1, remaining: 0 },
       },
       problems: [],
     }),

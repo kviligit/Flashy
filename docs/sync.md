@@ -267,6 +267,44 @@ else would carry the key that unlocks the sync history. Keeping it beside
 the collection makes export safe by construction rather than by
 remembering to filter.
 
+### What a round actually costs
+
+Measured by `node bench/sync.mjs`, against the in-memory backend on a
+desktop. A phone is several times slower, which is the reason the numbers
+mattered enough to take.
+
+| Collection | Records | Whole thing at once | One round, as sent |
+|---|---|---|---|
+| 500 notes | 4,286 | 0.5s, 57 events, 3.5MB | same — it fits in one round |
+| 2,000 notes | 17,366 | 1.6s, 229 events, 14MB | same |
+| 10,000 notes | 87,034 | **8.1s, 1,147 events, 72MB** | 1.5s, 299 events, 19MB, 5 rounds |
+
+The first-sync column is why both halves of a round are bounded. Publishing
+1,147 events and 72MB to a stranger's relay in one go is an unreasonable
+thing to do to it, and eight seconds of hand-written elliptic-curve
+arithmetic on a phone is an app that appears to have hung. Twenty thousand
+records a round keeps a round to a second or two and a few hundred events;
+the rest follows next round.
+
+The **push** budget lives in `syncWith`, not in the transport, because the
+watermark it has to keep honest lives there too. A round that sent only
+part of what was waiting may only claim to have pushed as far as it got —
+otherwise the remainder falls below an exclusive lower bound and is never
+offered again, which is exactly the permanent loss the pull side had
+before the audit found it. The cut is made at a *version*, not at a record
+count, because a timestamp is the only thing the next round can be told;
+records sharing the cut version travel together, so a single millisecond's
+worth of edits is never split.
+
+**Where the bytes go.** 87,034 records is 72MB, about 825 bytes each, and
+review logs dominate: each one carries a complete snapshot of the
+pre-answer card so undo can be an exact restore. Only the *earliest* log
+per card is actually used as the replay origin, so most of those snapshots
+are dead weight on the wire — but which log is earliest depends on what
+the receiving device already has, so dropping them is a correctness
+question rather than a compression one, and it is not a change to make
+casually.
+
 ### Still to do
 
 - `pruneTombstones()` exists but cannot run safely: it needs per-device

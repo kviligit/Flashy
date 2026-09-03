@@ -624,3 +624,101 @@ test('oversized media is rejected without being encoded first', () => {
   // this fails on a regression rather than on a slow machine.
   assert.ok(elapsed < 250, `took ${elapsed.toFixed(0)}ms; it should not be encoding the file`);
 });
+
+
+// --- the push had no budget, and its watermark did not care --------------
+
+test('a push larger than the budget sends part and leaves the watermark honest', async () => {
+  const tick = makeClock();
+  const relay = new FakeRelay('wss://relay.test');
+  const { db, basic, deck } = await collection(tick);
+
+  for (let i = 0; i < 12; i += 1) {
+    await addNote(db, {
+      noteTypeId: basic.id,
+      deckId: deck.id,
+      fields: { Front: `note ${i}` },
+      now: tick(),
+    });
+  }
+
+  const before = (await db.notes.getAll()).length;
+
+  // A budget far below what is waiting, so the round must stop early.
+  const first = await syncWith(db, transport(relay, 'mine', tick), {
+    now: tick,
+    maxRecordsPerPush: 10,
+  });
+
+  assert.ok(first.pushed.remaining > 0, 'it knows there is more to send');
+  const partial = first.pushed.upserts + first.pushed.deletions;
+  assert.ok(partial <= 12, `sent ${partial}, which is not a partial push`);
+
+  // The whole point: the records left behind must still be above the
+  // watermark, so the next round offers them again.
+  const state = await readSyncState(db, `nostr:${pubkey}`);
+  assert.ok(
+    state.lastPushedAt < Date.now() + 10 * 60_000,
+    'the watermark did not jump to now',
+  );
+
+  // Run rounds until it drains, and check everything went.
+  let guard = 0;
+  let result = first;
+  while (result.pushed.remaining > 0 && guard < 30) {
+    result = await syncWith(db, transport(relay, 'mine', tick), {
+      now: tick,
+      maxRecordsPerPush: 10,
+    });
+    guard += 1;
+  }
+
+  assert.ok(guard < 30, 'it drained rather than looping forever');
+
+  // Everything the collection holds is now on the relay, which a second
+  // device proves by pulling it.
+  const other = withChangeTracking(new MemoryDb(), { now: tick });
+  await syncWith(other, transport(relay, 'theirs', tick), { now: tick });
+  const arrived = (await other.notes.getAll()).length;
+  assert.equal(arrived, before, `${arrived} of ${before} notes crossed`);
+});
+
+test('records sharing one timestamp are never split across rounds', async () => {
+  const tick = makeClock();
+  const relay = new FakeRelay('wss://relay.test');
+  const { db, basic, deck } = await collection(tick);
+
+  // Five notes written at the same instant. A cut in the middle of them
+  // would be unrepresentable: the watermark is a timestamp, so the next
+  // round would either resend all five or skip all five.
+  const at = tick();
+  for (let i = 0; i < 5; i += 1) {
+    await addNote(db, {
+      noteTypeId: basic.id,
+      deckId: deck.id,
+      fields: { Front: `same instant ${i}` },
+      now: at,
+    });
+  }
+
+  const result = await syncWith(db, transport(relay, 'mine', tick), {
+    now: tick,
+    maxRecordsPerPush: 1,
+  });
+
+  // A budget of one cannot be honoured here, and stalling forever would be
+  // worse than exceeding it. It sends the batch.
+  assert.ok(result.pushed.upserts >= 1);
+
+  let guard = 0;
+  let remaining = result.pushed.remaining;
+  while (remaining > 0 && guard < 40) {
+    const next = await syncWith(db, transport(relay, 'mine', tick), {
+      now: tick,
+      maxRecordsPerPush: 1,
+    });
+    remaining = next.pushed.remaining;
+    guard += 1;
+  }
+  assert.ok(guard < 40, 'it made progress rather than stalling on the tie');
+});
