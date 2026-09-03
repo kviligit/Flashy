@@ -776,6 +776,57 @@ async function run(playwright) {
     );
     check('and is still selectable', browseLayout.hasCheckbox);
 
+    // The browser was not the only screen this happened on: settings took
+    // the page 140px sideways and stats 29px, both from wide tables. One
+    // screen at a time is how it got missed, so every screen is checked.
+    for (const [label, path] of [
+      ['decks', '/'],
+      ['browse', '/browse'],
+      ['stats', '/stats'],
+      ['import/export', '/manage'],
+      ['settings', '/settings'],
+      ['the editor', '/add'],
+    ]) {
+      await appPage.goto(`${BASE}#${path}`);
+      await appPage.waitForTimeout(500);
+      const overflow = await appPage.evaluate(() => {
+        const docW = document.documentElement.clientWidth;
+        const inner = [];
+        for (const el of document.querySelectorAll('*')) {
+          if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) {
+            if (getComputedStyle(el).overflowX === 'hidden') continue;
+            inner.push(el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\s+/)[0] : ''));
+          }
+        }
+        return { page: document.documentElement.scrollWidth - docW, inner: [...new Set(inner)] };
+      });
+      check(`${label} does not scroll sideways on an iPhone SE`, overflow.page <= 1, `${overflow.page}px`);
+      check(
+        `nothing inside ${label} scrolls sideways either`,
+        overflow.inner.length === 0,
+        overflow.inner.slice(0, 3).join(' | '),
+      );
+    }
+
+    // Fitting by hiding is the failure mode to guard against, so check the
+    // stacked tables still carry their labels and values.
+    await appPage.goto(`${BASE}#/settings`);
+    await appPage.waitForSelector('table.stacks');
+    const stacked = await appPage.evaluate(() => {
+      const table = document.querySelector('table.stacks');
+      const row = table ? table.querySelector('tbody tr') : null;
+      const labels = row
+        ? Array.from(row.querySelectorAll('td[data-label]')).map((td) => td.getAttribute('data-label'))
+        : [];
+      return { labels, headerHidden: table ? getComputedStyle(table.querySelector('thead')).display === 'none' : false };
+    });
+    check('a stacked table hides its header row on a phone', stacked.headerHidden);
+    check(
+      'and carries the column names on the cells instead',
+      stacked.labels.length >= 3,
+      stacked.labels.join(','),
+    );
+
     await appPage.goto(`${BASE}#/`);
     await appPage.waitForSelector('.deck-row');
     await appPage.locator('.deck-row .name').first().click();

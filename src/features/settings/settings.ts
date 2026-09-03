@@ -85,7 +85,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
         button('New preset', () => void createPreset(ctx, refresh), {}),
       ),
       el(
-        'table',
+        'table.stacks',
         {},
         el(
           'thead',
@@ -100,13 +100,21 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
             return el(
               'tr',
               { 'data-preset': preset.name },
+              // data-label is what the cell shows instead of its column
+              // heading once the table stacks on a narrow screen.
               el('td', { text: preset.name }),
-              el('td.muted', { text: users.length === 0 ? 'unused' : users.map((d) => d.name).join(', ') }),
-              el('td.muted', { text: String(preset.newPerDay) }),
-              el('td.muted', { text: String(preset.reviewsPerDay) }),
-              el('td.muted', { text: `${(preset.desiredRetention * 100).toFixed(0)}%` }),
+              el('td.muted', {
+                'data-label': 'Decks',
+                text: users.length === 0 ? 'unused' : users.map((d) => d.name).join(', '),
+              }),
+              el('td.muted', { 'data-label': 'New/day', text: String(preset.newPerDay) }),
+              el('td.muted', { 'data-label': 'Reviews/day', text: String(preset.reviewsPerDay) }),
+              el('td.muted', {
+                'data-label': 'Retention',
+                text: `${(preset.desiredRetention * 100).toFixed(0)}%`,
+              }),
               el(
-                'td',
+                'td.actions',
                 {},
                 button('Edit', () => navigate(`/settings/deck/${users[0]?.id ?? decks[0]?.id ?? ''}`), {
                   class: 'ghost',
@@ -126,7 +134,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
       {},
       el('h3', { text: 'Note types' }),
       el(
-        'table',
+        'table.stacks',
         {},
         el('thead', {}, el('tr', {}, ['Note type', 'Fields', 'Cards', 'Notes', ''].map((h) => el('th', { text: h })))),
         el(
@@ -137,13 +145,17 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
               'tr',
               { 'data-notetype': nt.name },
               el('td', { text: nt.name }),
-              el('td.muted', { text: nt.fields.map((f) => f.name).join(', ') }),
               el('td.muted', {
+                'data-label': 'Fields',
+                text: nt.fields.map((f) => f.name).join(', '),
+              }),
+              el('td.muted', {
+                'data-label': 'Cards',
                 text: nt.kind === 'cloze' ? 'from deletions' : String(nt.templates.length),
               }),
-              el('td.muted', { text: String(usage.get(nt.id) ?? 0) }),
+              el('td.muted', { 'data-label': 'Notes', text: String(usage.get(nt.id) ?? 0) }),
               el(
-                'td',
+                'td.actions',
                 {},
                 button('Edit', () => navigate(`/settings/notetype/${nt.id}`), { class: 'ghost' }),
                 button('Clone', () => void clone(ctx, nt.id, nt.name, refresh), { class: 'ghost' }),
