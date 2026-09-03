@@ -880,6 +880,7 @@ async function run(playwright) {
       offlineText.slice(0, 80),
     );
 
+
     // Touch targets have to survive the narrower iPhone viewport too.
     await appPage.goto(`${BASE}#/add`);
     await appPage.waitForSelector('textarea[data-field]');
@@ -887,31 +888,6 @@ async function run(playwright) {
     await appPage.fill('textarea[data-field="Back"]', 'test');
     await appPage.click('button:has-text("Add note")');
     await appPage.waitForTimeout(200);
-    await appPage.goto(`${BASE}#/`);
-    await appPage.waitForSelector('.deck-row');
-    await appPage.locator('.deck-row .name').first().click();
-    await appPage.waitForSelector('.review-content');
-    await appPage.locator('[data-action="show-answer"]').click();
-    await appPage.waitForSelector('[data-rating]');
-    const sizes = await appPage
-      .locator('[data-rating]')
-      .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
-    check('answer buttons stay tappable on an iPhone', sizes.every((h) => h >= 44), sizes.join(','));
-    const layout = await appPage.evaluate(() => {
-      const bar = document.querySelector('.answer-bar');
-      const rect = bar.getBoundingClientRect();
-      const nav = document.querySelector('.topbar nav');
-      return {
-        noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
-        barVisible: rect.top >= 0 && rect.bottom <= window.innerHeight,
-        navFits: nav ? nav.scrollWidth <= nav.clientWidth + 1 : true,
-        scrolls: document.documentElement.scrollHeight > window.innerHeight,
-      };
-    });
-    check('nothing overflows the iPhone SE viewport', layout.noOverflow);
-    check('the nav fits without clipping on an iPhone SE', layout.navFits);
-    check('the answer buttons are reachable without scrolling', layout.barVisible);
-    check('the review screen needs no scrolling on an iPhone SE', !layout.scrolls);
 
     // The browser view is a seven-column table, which on a phone used to be
     // 641px wide inside a 349px card — the due date and everything right of
@@ -953,6 +929,32 @@ async function run(playwright) {
       browseLayout.rowText.slice(0, 70),
     );
     check('and is still selectable', browseLayout.hasCheckbox);
+
+    await appPage.goto(`${BASE}#/`);
+    await appPage.waitForSelector('.deck-row');
+    await appPage.locator('.deck-row .name').first().click();
+    await appPage.waitForSelector('.review-content');
+    await appPage.locator('[data-action="show-answer"]').click();
+    await appPage.waitForSelector('[data-rating]');
+    const sizes = await appPage
+      .locator('[data-rating]')
+      .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+    check('answer buttons stay tappable on an iPhone', sizes.every((h) => h >= 44), sizes.join(','));
+    const layout = await appPage.evaluate(() => {
+      const bar = document.querySelector('.answer-bar');
+      const rect = bar.getBoundingClientRect();
+      const nav = document.querySelector('.topbar nav');
+      return {
+        noOverflow: document.documentElement.scrollWidth <= window.innerWidth + 1,
+        barVisible: rect.top >= 0 && rect.bottom <= window.innerHeight,
+        navFits: nav ? nav.scrollWidth <= nav.clientWidth + 1 : true,
+        scrolls: document.documentElement.scrollHeight > window.innerHeight,
+      };
+    });
+    check('nothing overflows the iPhone SE viewport', layout.noOverflow);
+    check('the nav fits without clipping on an iPhone SE', layout.navFits);
+    check('the answer buttons are reachable without scrolling', layout.barVisible);
+    check('the review screen needs no scrolling on an iPhone SE', !layout.scrolls);
 
     // --- sync ---
     // Off by default, and it must stay that way: nothing should leave the

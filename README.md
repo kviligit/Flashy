@@ -10,7 +10,7 @@
 > **What that is worth.** The FSRS implementation is ported from the
 > reference Rust implementation and pinned by two golden vectors taken from
 > that project's own test suite, so the algorithm is not improvised. There
-> are 408 unit tests and 93 end-to-end checks against a real browser, and
+> are 410 unit tests and 97 end-to-end checks against a real browser, and
 > the storage layer is verified against both of its backends. Several real
 > bugs were caught that way and are recorded in the commit history.
 >
@@ -231,8 +231,8 @@ to run on fewer than 100 dated reviews.
 ## Testing
 
 ```
-npm test    408 unit tests
-npm run e2e  93 end-to-end checks in a real browser
+npm test    410 unit tests
+npm run e2e  97 end-to-end checks in a real browser
 ```
 
 Some of the load-bearing ones:
