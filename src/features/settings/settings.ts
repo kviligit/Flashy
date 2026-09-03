@@ -82,7 +82,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
       'div.card.col',
       { 'data-card': 'build' },
       el('h3', { text: 'Version' }),
-      el('div.row', {}, field('Iteration', el('code', { text: BUILD_LABEL }))),
+      el('div.row', {}, field('Version', el('code', { text: BUILD_LABEL }))),
       el('p.faint', {
         text: `Commit ${BUILD.commit}${BUILD.dirty ? ' with uncommitted changes' : ''}, built ${new Date(BUILD.builtAt).toLocaleString()}.`,
       }),

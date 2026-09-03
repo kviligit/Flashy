@@ -40,6 +40,15 @@ import {
 
 export const LEECH_TAG = 'leech';
 
+/** A day's study in one deck, as recorded in the review log. */
+export interface DayStats {
+  answered: number;
+  again: number;
+  totalMs: number;
+  /** When the first answer of the day landed, or null if there were none. */
+  firstAt: number | null;
+}
+
 export interface SchedulerOptions {
   /** Current time. Injected so tests can move the clock. */
   now?: () => number;
@@ -248,6 +257,58 @@ export class Scheduler {
   // --- answering ---------------------------------------------------------
 
   /** The four options for a card, for previewing on the answer buttons. */
+  /**
+   * What has actually been studied in this deck today.
+   *
+   * Read from the review log rather than counted in the reviewer, because
+   * the reviewer's counters live for as long as the screen does. Open a
+   * deck, answer six, glance at the stats page, come back and finish, and
+   * the summary reported the second sitting only — six answers vanished
+   * from a number the user is told is their day's work. Every one of them
+   * is in the log; the log is the honest source.
+   *
+   * Scoped to the deck and its subdecks, and to the study day, which
+   * starts at the configured cutoff hour rather than at midnight.
+   */
+  async todayStats(deckId: string): Promise<DayStats> {
+    const now = this.now();
+    const since = dayStart(now, this.cutoffHour);
+
+    const logs = await this.db.reviewLogs.byRange('reviewedAt', { lower: since });
+    if (logs.length === 0) return { answered: 0, again: 0, totalMs: 0, firstAt: null };
+
+    // Which cards belong to this deck, resolved once rather than per log.
+    // Decks nest by name — "Maths::Sets" is under "Maths" — so the scope
+    // is the deck and everything beneath it.
+    const decks = await this.db.decks.getAll();
+    const root = decks.find((deck) => deck.id === deckId);
+    if (!root) return { answered: 0, again: 0, totalMs: 0, firstAt: null };
+    const inScope = new Set(
+      decks.filter((deck) => isDeckOrDescendant(deck.name, root.name)).map((deck) => deck.id),
+    );
+
+    const cards = new Map((await this.db.cards.getAll()).map((card) => [card.id, card]));
+
+    let answered = 0;
+    let again = 0;
+    let totalMs = 0;
+    let firstAt: number | null = null;
+
+    for (const log of logs) {
+      const card = cards.get(log.cardId);
+      // A card deleted after being answered still counted as study that
+      // happened; without a card we cannot place it in a deck, so it is
+      // left out rather than guessed at.
+      if (!card || !inScope.has(card.deckId)) continue;
+      answered += 1;
+      if (log.rating === Rating.Again) again += 1;
+      totalMs += log.timeTakenMs;
+      if (firstAt === null || log.reviewedAt < firstAt) firstAt = log.reviewedAt;
+    }
+
+    return { answered, again, totalMs, firstAt };
+  }
+
   async choicesFor(card: Card, config: DeckConfig): Promise<SchedulingChoices> {
     const now = this.now();
     return fsrsSchedule(Scheduler.fsrsConfig(config), toSchedulingCard(card), {

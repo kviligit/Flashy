@@ -14,10 +14,26 @@
  */
 
 export interface MathSymbol {
-  /** The character inserted, and the button's label. */
+  /** The button's label. */
   char: string;
   /** What it means, shown as a tooltip. */
   name: string;
+  /**
+   * What is actually inserted, when that differs from the label.
+   *
+   * Only the angle brackets need this. Note fields are rendered as HTML —
+   * that is how an attached image becomes an `<img>` — so a typed `<`
+   * followed by a letter is markup, and `<a,b>` is parsed as an anchor
+   * tag and vanishes entirely. Inserting the entity puts a literal
+   * bracket on the card while the button still shows the character the
+   * user is looking for.
+   */
+  insert?: string;
+}
+
+/** What a button puts in the field. */
+export function textFor(symbol: MathSymbol): string {
+  return symbol.insert ?? symbol.char;
 }
 
 export interface SymbolGroup {
@@ -91,6 +107,8 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
   {
     name: 'Other',
     symbols: [
+      { char: '<', name: 'less than (literal, safe on a card)', insert: '&lt;' },
+      { char: '>', name: 'greater than (literal, safe on a card)', insert: '&gt;' },
       { char: '…', name: 'ellipsis' },
       { char: '⟨', name: 'left angle bracket' },
       { char: '⟩', name: 'right angle bracket' },
@@ -148,4 +166,22 @@ export function insertAt(
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return value < min ? min : value > max ? max : value;
+}
+
+
+/**
+ * Whether a field looks like maths that HTML will eat.
+ *
+ * Note fields are HTML, so `<` followed by a letter starts a tag: `<a,b>`
+ * is parsed as an anchor and disappears from the card completely, with no
+ * error and nothing in the preview. That is a miserable thing to debug
+ * from the outside, so it is named.
+ *
+ * The test is deliberately narrow — a tag-open followed by a name and a
+ * comma — because that is the shape of an ordered pair and is not the
+ * shape of any markup anyone writes. `<b>bold</b>` and an attached
+ * `<img src="…">` do not match, so writing real HTML is not nagged at.
+ */
+export function looksLikeSwallowedMaths(value: string): boolean {
+  return /<[A-Za-z][A-Za-z0-9]*\s*,/.test(value);
 }
