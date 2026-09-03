@@ -158,15 +158,18 @@ export function browse(ctx: AppContext, initialQuery = ''): HTMLElement {
                 el(
                   'tr',
                   {},
-                  el('th', { style: { width: '2em' } }),
-                  el('th', { text: 'Question' }),
-                  el('th', { text: 'Deck' }),
-                  el('th', { text: 'State' }),
-                  el('th', { text: 'Due' }),
-                  el('th', { text: 'Interval' }),
-                  el('th', { text: 'Reps' }),
-                  el('th', { text: 'Tags' }),
-                  el('th', {}),
+                  // Each column carries its own class so the stylesheet can
+                  // drop the secondary ones on a narrow screen rather than
+                  // forcing the table into a sideways scroll.
+                  el('th.col-pick', { style: { width: '2em' } }),
+                  el('th.col-q', { text: 'Question' }),
+                  el('th.col-deck', { text: 'Deck' }),
+                  el('th.col-state', { text: 'State' }),
+                  el('th.col-due', { text: 'Due' }),
+                  el('th.col-interval', { text: 'Interval' }),
+                  el('th.col-reps', { text: 'Reps' }),
+                  el('th.col-tags', { text: 'Tags' }),
+                  el('th.col-actions', {}),
                 ),
               ),
               el('tbody', {}, visible.map((row) => rowView(ctx, row, selected, refresh))),
@@ -207,27 +210,35 @@ function rowView(
   return el(
     'tr',
     { class: selected.has(row.card.id) ? 'selected' : '', 'data-card': row.card.id },
-    el('td', {}, checkbox),
-    el('td.q', {
+    el('td.col-pick', {}, checkbox),
+    el('td.q.col-q', {
       class: row.card.suspended ? 'suspended' : '',
       text: row.question || '(blank)',
       title: row.question,
     }),
-    el('td.muted', { text: row.deck.name }),
+    el('td.muted.col-deck', { text: row.deck.name }),
     el(
-      'td',
-      {},
+      'td.col-state',
+      {
+        // The dot survives on a phone where the word does not, so the
+        // title has to carry the meaning the label stops showing.
+        title: row.card.suspended ? 'Suspended' : (STATE_NAME[row.card.state] ?? '?'),
+      },
       el(`span.state-dot.${STATE_CLASS[row.card.state] ?? 'new'}`, {}),
-      el('span', { text: row.card.suspended ? 'Suspended' : (STATE_NAME[row.card.state] ?? '?') }),
+      el('span.state-label', {
+        text: row.card.suspended ? 'Suspended' : (STATE_NAME[row.card.state] ?? '?'),
+      }),
     ),
-    el('td.muted', {
+    el('td.muted.col-due', {
       text: row.card.state === State.New ? '—' : new Date(row.card.due).toLocaleDateString(),
     }),
-    el('td.muted', { text: interval }),
-    el('td.muted', { text: `${row.card.reps}${row.card.lapses ? ` / ${row.card.lapses}✕` : ''}` }),
-    el('td', {}, row.note.tags.map((tag) => el('span.tag-chip', { text: tag }))),
+    el('td.muted.col-interval', { text: interval }),
+    el('td.muted.col-reps', {
+      text: `${row.card.reps}${row.card.lapses ? ` / ${row.card.lapses}✕` : ''}`,
+    }),
+    el('td.col-tags', {}, row.note.tags.map((tag) => el('span.tag-chip', { text: tag }))),
     el(
-      'td',
+      'td.col-actions',
       {},
       button('Edit', () => navigate(`/edit/${row.note.id}`), { class: 'ghost' }),
       button('Info', () => void cardInfo(ctx, row), { class: 'ghost' }),
