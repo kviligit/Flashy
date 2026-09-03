@@ -759,6 +759,55 @@ async function run(playwright) {
     check('safe links survive and are given rel', kept.link.includes('rel="noopener noreferrer nofollow"'), kept.link);
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
+    // --- maths symbols ---
+    // The palette exists so these do not have to be hunted for on a phone
+    // keyboard, so what matters is that a tap lands the glyph where the
+    // caret was — not at the end of the field.
+    await page.goto(`${BASE}#/add`);
+    await page.waitForSelector('textarea[data-field]');
+    check(
+      'the symbol palette starts closed',
+      (await page.locator('[data-symbols] [data-symbol="∈"]').isVisible()) === false,
+    );
+
+    await page.click('[data-symbols] > summary');
+    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
+
+    await page.fill('textarea[data-field="Front"]', 'A  B');
+    // Put the caret between the two spaces.
+    await page.evaluate(() => {
+      const box = document.querySelector('textarea[data-field="Front"]');
+      box.focus();
+      box.setSelectionRange(2, 2);
+    });
+    await page.click('[data-symbol="⊆"]');
+    const afterOne = await page.inputValue('textarea[data-field="Front"]');
+    check('a symbol is inserted at the caret', afterOne === 'A ⊆ B', JSON.stringify(afterOne));
+
+    // And the caret follows it, so a second tap does not jump elsewhere.
+    await page.click('[data-symbol="∅"]');
+    const afterTwo = await page.inputValue('textarea[data-field="Front"]');
+    check('and the caret follows, so symbols chain', afterTwo === 'A ⊆∅ B', JSON.stringify(afterTwo));
+
+    const tapTargets = await page
+      .locator('[data-symbols] .symbol-key')
+      .evaluateAll((nodes) => nodes.map((n) => Math.round(n.getBoundingClientRect().height)));
+    check(
+      'the symbol keys are tappable',
+      tapTargets.length > 20 && tapTargets.every((h) => h >= 44),
+      `${tapTargets.length} keys, smallest ${Math.min(...tapTargets)}px`,
+    );
+
+    // Reopening the editor should find the palette as it was left.
+    await page.goto(`${BASE}#/`);
+    await page.waitForSelector('.deck-row');
+    await page.goto(`${BASE}#/add`);
+    await page.waitForSelector('textarea[data-field]');
+    check(
+      'the palette remembers that it was opened',
+      await page.locator('[data-symbols] [data-symbol="∈"]').isVisible(),
+    );
+
     // --- build label ---
     // It exists so a user can say "I am on v28" and have that mean the
     // code in their browser, so it is compiled in rather than fetched.

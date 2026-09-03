@@ -14,6 +14,7 @@ import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
 import { setSafeHtml } from '../../ui/safe-html.js';
 import { applyPrefix, SNIPPETS } from './snippets.js';
+import { insertAt, SYMBOL_GROUPS } from './symbols.js';
 import type { Deck, Note, NoteType } from '../../domain/types.js';
 
 export interface EditorOptions {
@@ -66,6 +67,7 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
   const draw = (): void => {
     /** Field name -> apply a prefix to that field's current text. */
     const prefixers = new Map<string, (text: string) => void>();
+    const inserters = new Map<string, (text: string) => void>();
     /**
      * Which field the snippet buttons act on.
      *
@@ -133,6 +135,25 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
 
       control.addEventListener('focus', () => {
         lastFocusedField = f.name;
+      });
+
+      // Insertion at the caret, which is a different operation from the
+      // stock openings: a symbol goes where you are, an opening goes at
+      // the front. A textarea keeps its selection while blurred, so the
+      // caret read here is still the one the user left behind when they
+      // reached for the button.
+      inserters.set(f.name, (text: string) => {
+        const { value: next, caret } = insertAt(
+          control.value,
+          control.selectionStart ?? control.value.length,
+          control.selectionEnd ?? control.value.length,
+          text,
+        );
+        control.value = next;
+        fields[f.name] = next;
+        control.focus();
+        control.setSelectionRange(caret, caret);
+        drawPreview();
       });
 
       prefixers.set(f.name, (text: string) => {
@@ -335,6 +356,7 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
           {},
           el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
           snippetBar(() => lastFocusedField, prefixers),
+          symbolBar(() => lastFocusedField, inserters),
           inputs,
           field('Tags', tagsInput),
           el('p.faint', {
@@ -403,6 +425,84 @@ function snippetBar(
       ),
     ),
   );
+}
+
+
+/**
+ * The mathematical symbol palette.
+ *
+ * Collapsed by default, and the choice is remembered: someone building a
+ * discrete-maths deck wants it open for an hour, and someone building a
+ * vocabulary deck never wants to see it. Fifty buttons unfolded on every
+ * visit would be worse than the emoji keyboard for everyone in the second
+ * group.
+ *
+ * `details`/`summary` rather than a button and a class, because it gets
+ * keyboard operation, the open/closed state and the disclosure semantics
+ * from the browser instead of from code that has to be maintained.
+ */
+function symbolBar(
+  targetField: () => string | undefined,
+  inserters: Map<string, (text: string) => void>,
+): HTMLElement | null {
+  if (inserters.size === 0) return null;
+
+  const panel = el('details.symbol-bar', { 'data-symbols': 'true' }) as HTMLDetailsElement;
+  if (symbolsOpen()) panel.open = true;
+  panel.addEventListener('toggle', () => rememberSymbols(panel.open));
+
+  render(
+    panel,
+    el('summary', { text: 'Maths symbols' }),
+    SYMBOL_GROUPS.map((group) =>
+      el(
+        'div.symbol-group',
+        {},
+        el('span.faint.symbol-group-name', { text: group.name }),
+        el(
+          'div.symbol-keys',
+          {},
+          group.symbols.map((symbol) =>
+            button(
+              symbol.char,
+              () => {
+                const target = targetField();
+                if (target) inserters.get(target)?.(symbol.char);
+              },
+              {
+                class: 'ghost symbol-key',
+                'data-symbol': symbol.char,
+                title: `${symbol.char} — ${symbol.name}`,
+                'aria-label': symbol.name,
+              },
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  return panel;
+}
+
+const SYMBOLS_OPEN_KEY = 'flashy.editor.symbolsOpen';
+
+function symbolsOpen(): boolean {
+  try {
+    return localStorage.getItem(SYMBOLS_OPEN_KEY) === 'true';
+  } catch {
+    // Private browsing can refuse storage; a closed palette is the right
+    // default when we cannot know better.
+    return false;
+  }
+}
+
+function rememberSymbols(open: boolean): void {
+  try {
+    localStorage.setItem(SYMBOLS_OPEN_KEY, open ? 'true' : 'false');
+  } catch {
+    // Not remembering is a small loss; failing to open the palette is not.
+  }
 }
 
 
