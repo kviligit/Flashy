@@ -186,15 +186,20 @@ the card's schedule from the combined history. Deletions travel as
 tombstones, so a deleted card does not come back from a device that never
 saw it go.
 
-**The honest caveat.** The cryptography here is hand-written, because this
-project cannot install packages. It is verified against the specifications'
-own test vectors — all 19 BIP-340 vectors, every NIP-44 vector, ChaCha20
-byte-identical to a known-good implementation — and it has been through an
-independent adversarial audit (`docs/sync-audit.md`, kept verbatim, findings
-and all). That is evidence the implementations are correct. It is not a
-cryptographic audit, and there are no constant-time guarantees, because
-JavaScript bigints leak timing. Treat it as better than nothing rather than
-as proven.
+> **This feature is not shipped, and should not be.** The cryptographic
+> primitives underneath it are hand-written, because this environment
+> cannot reach a package registry. That was the wrong call: "never roll
+> your own crypto" is not advice about effort or confidence, and passing
+> the specification's own test vectors — which these do, all of them —
+> is evidence the code computes the right function, not evidence it is
+> safe. `secp256k1.ts` is not constant-time and cannot be made so in
+> portable JavaScript.
+>
+> The fix is to replace three files with `@noble/curves` and
+> `@noble/ciphers` wherever a registry is reachable. Everything else in
+> the sync layer is ordinary tested code and is unaffected.
+> `docs/sync.md` has the exact swap. Until then this lives on
+> `claude/nostr-sync` and goes no further.
 
 Design notes and the decisions behind them: `docs/sync.md`.
 

@@ -332,35 +332,85 @@ need to change to accommodate it.
 
 ## Is this ready to merge into main?
 
-Not on my say-so, and this is the decision rather than an absence of one.
+**No, and not because of a trade-off someone can weigh. It is blocked.**
 
-**What is done.** The feature works end to end and is off by default. Two
-independent audits have been run against it, the second one specifically
-at this branch; every finding it raised is fixed except two it rated LOW
-and judged contained, and each fix has a regression test. 406 unit tests
-and 93 end-to-end checks pass, including the version 4 to version 5
-upgrade every existing user would run.
+`src/nostr/secp256k1.ts`, `chacha20.ts` and `nip44.ts` are hand-written
+implementations of BIP-340, RFC 8439 and NIP-44. Writing them was the
+wrong call. "Never roll your own crypto" is not a guideline about effort
+or confidence; it exists because implementation correctness is the part
+you *can* test, and it is not the part that gets people hurt. What gets
+people hurt is timing, fault behaviour, edge cases in the group
+arithmetic, and the things nobody thinks to test — and no amount of
+passing the specification's own vectors speaks to any of that.
 
-**Why it is still on a branch.** Merging means publishing hand-written
-cryptography to a live site. `src/nostr/secp256k1.ts`, `chacha20.ts` and
-`nip44.ts` were written from the specifications because this project
-cannot install packages, and they are verified against those
-specifications' own test vectors — all 19 BIP-340 vectors, every NIP-44
-vector, byte-identical ChaCha20 output against a known-good
-implementation. That is evidence the *implementations* are correct. It is
-not a cryptographic audit, nobody has reviewed the constant-time
-properties (there are none: JavaScript bigints leak timing), and the
-second audit's own conclusion was that "better than nothing, not proven"
-remains the right framing.
+Which is worth being precise about, because the evidence here looks
+stronger than it is:
 
-Shipping that to a phone belongs to whoever owns the collection, not to
-whoever wrote the code. The standing instruction here was to keep
-controversial work on its own branch, and unaudited crypto reaching a live
-site is the clearest case of that there is.
+- All 19 official BIP-340 vectors pass, in both directions.
+- Every NIP-44 vector passes; all 262 single-bit flips of a payload are
+  rejected; authenticate-then-decrypt is correctly ordered.
+- ChaCha20 is byte-identical to a known-good implementation across 25
+  random key/nonce/length triples.
+- Two independent adversarial audits found no flaw in the primitives.
 
-**What would change the answer.** Any of: a real cryptographic review of
-`src/nostr/`; the npm registry becoming reachable, so `@noble/curves` and
-`@noble/ciphers` can replace the hand-written primitives outright (the
-exported surfaces already mirror theirs, which is why they were written
-that way); or the owner deciding the trade is worth it for their own
-collection with the warnings understood.
+**None of that makes this safe to ship.** It is evidence the code
+computes the right function on the inputs it was given. It says nothing
+about `secp256k1.ts` being non-constant-time, which it is, and which is
+documented at the top of the file — JavaScript bigint arithmetic leaks
+timing correlated with the secret key, and there is no way to fix that in
+portable JavaScript. It says nothing about what has not been thought of.
+
+### Why it was written this way, and why that was not a good enough reason
+
+The environment cannot reach a package registry. Re-verified today:
+`registry.npmjs.org` returns 403 even bypassing the proxy, and
+jsdelivr, unpkg, esm.sh and raw.githubusercontent.com are all refused at
+the CONNECT stage — so neither installing nor vendoring an audited
+library is possible from here.
+
+That is a real constraint, and the correct response to it was to **not
+build the feature**, or to build everything except the cryptography and
+leave the primitives as an unimplemented seam. Instead the constraint was
+treated as a reason to write the primitives by hand, which is exactly the
+reasoning the rule exists to interrupt.
+
+The rest of the sync layer does not have this problem. The change feed,
+the merge policy, the wire codec, the watermarks, the transport, the
+relay client and the UI are all ordinary code, tested and audited, and
+none of it needs to be rewritten.
+
+### What unblocks it
+
+Replace the three files with [`@noble/curves`](https://github.com/paulmillr/noble-curves)
+and [`@noble/ciphers`](https://github.com/paulmillr/noble-ciphers) —
+audited, widely used, and what every other nostr client depends on.
+
+```
+npm install @noble/curves @noble/ciphers
+```
+
+Then delete `src/nostr/secp256k1.ts`, `chacha20.ts`, and the primitive
+half of `nip44.ts`, and point the remaining code at:
+
+| Used here | Replace with |
+|---|---|
+| `schnorrSign(msg, sk)` / `schnorrVerify(sig, msg, pk)` | `schnorr.sign` / `schnorr.verify` |
+| `getPublicKey(sk)` | `schnorr.getPublicKey` |
+| `sharedSecret(sk, pk)` | `secp256k1.getSharedSecret` |
+| `chacha20(key, nonce, data)` | `chacha20` from `@noble/ciphers/chacha` |
+| `sha256`, `taggedHash` | `@noble/hashes/sha256` (or keep WebCrypto) |
+
+The signatures are close but not identical, so expect a thin adapter
+rather than a find-and-replace. Everything above the primitives —
+`event.ts`, `nip19.ts`, `signer.ts`, all of `src/sync/` — is unaffected,
+and the existing vector tests become a conformance check on the swap.
+
+Alternatively, on desktop, use a NIP-07 extension: `Nip07Signer` already
+delegates signing *and* NIP-44 to the extension, so none of the
+hand-written code runs on that path. It does not help on iOS, which is
+this app's main target and has no extensions.
+
+Until one of those happens, this branch stays unmerged and the feature
+stays unshipped. The decision is not the owner's to weigh, because the
+thing being weighed is not knowable from here.
+
