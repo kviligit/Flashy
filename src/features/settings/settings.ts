@@ -10,6 +10,7 @@ import { makeDeckConfig, makeMeta } from '../../domain/defaults.js';
 import { cloneNoteType, deleteNoteType, noteTypeUsage } from '../../collection/notetypes.js';
 import { estimate, formatBytes, requestPersistence } from '../../storage/index.js';
 import { offlineSupported, resetOfflineCopy } from '../../ui/offline.js';
+import { BUILD, BUILD_LABEL } from '../../app/build-info.js';
 import {
   currentPlatform,
   installInstructions,
@@ -75,6 +76,19 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
         text: 'Optional, off by default. Uses nostr relays to keep another device in step with this one.',
       }),
       el('div.row', {}, button('Open sync settings', () => navigate('/sync'), {})),
+    ),
+
+    el(
+      'div.card.col',
+      { 'data-card': 'build' },
+      el('h3', { text: 'Version' }),
+      el('div.row', {}, field('Iteration', el('code', { text: BUILD_LABEL }))),
+      el('p.faint', {
+        text: `Commit ${BUILD.commit}${BUILD.dirty ? ' with uncommitted changes' : ''}, built ${new Date(BUILD.builtAt).toLocaleString()}.`,
+      }),
+      el('p.faint', {
+        text: 'This is compiled into the app, so it describes the code your browser is actually running — not the newest version published. If it lags behind after an update, use "Reset the offline copy" above.',
+      }),
     ),
 
     el(

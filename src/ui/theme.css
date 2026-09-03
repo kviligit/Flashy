@@ -122,8 +122,21 @@ kbd {
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
+}
+
+/* The build label. Dim and small: it is there to be checked, not read. */
+.build {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: default;
+  /* Sits with the brand; the auto margin moves here so the nav still
+     goes to the right edge. */
   margin-right: auto;
 }
+
 
 .topbar nav { display: flex; gap: 4px; }
 

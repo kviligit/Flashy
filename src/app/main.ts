@@ -2,6 +2,7 @@
 
 import { el, render } from '../ui/dom.js';
 import { Router } from './router.js';
+import { BUILD, BUILD_LABEL } from './build-info.js';
 import { bootstrap, type AppContext } from './context.js';
 import { deckList } from '../features/decks/deck-list.js';
 import { noteEditor } from '../features/editor/note-editor.js';
@@ -31,6 +32,15 @@ function shell(): { root: HTMLElement; outlet: HTMLElement; setActive: (path: st
     'header.topbar',
     {},
     el('span.brand', { text: 'Flashy' }),
+    // Compiled in, not fetched, so it describes the code actually
+    // running rather than whatever the server last published — which is
+    // the difference that makes it worth having when a service worker
+    // may still be serving an older build.
+    el('span.build', {
+      'data-build': BUILD.commit,
+      title: `${BUILD.commit}${BUILD.dirty ? ' (uncommitted changes)' : ''} · built ${BUILD.builtAt}`,
+      text: BUILD_LABEL,
+    }),
     el('nav', { 'aria-label': 'Main' }, links),
   );
   const outlet = el('main', { id: 'main', tabindex: '-1' });
