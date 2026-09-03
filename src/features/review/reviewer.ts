@@ -13,6 +13,7 @@ import { modal } from '../../ui/modal.js';
 import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
+import type { DayStats } from '../../scheduler/service.js';
 import { renderCard } from '../../domain/cards.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
@@ -130,7 +131,7 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
     const card = ctx.scheduler.nextCard(session);
     if (!card) {
       current = null;
-      drawDone();
+      drawDone(await ctx.scheduler.todayStats(deckId));
       return;
     }
 
@@ -290,10 +291,20 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
       ),
     );
 
-  const drawDone = (): void => {
-    const elapsedMin = (ctx.scheduler.now() - sessionStart) / 60_000;
-    const accuracy = answered === 0 ? 0 : ((answered - againCount) / answered) * 100;
-    const secondsPerCard = answered === 0 ? 0 : totalMs / answered / 1000;
+  const drawDone = (day: DayStats): void => {
+    // The day's work, read from the review log rather than from this
+    // screen's counters: those reset every time the reviewer is remounted,
+    // so answering six, stepping away to the stats page and coming back to
+    // finish reported only the second sitting — the first six vanished
+    // from a number the user is told is their day's study.
+    const answeredToday = day.answered;
+    const againToday = day.again;
+
+    const startedAt = day.firstAt ?? sessionStart;
+    const elapsedMin = (ctx.scheduler.now() - startedAt) / 60_000;
+    const accuracy =
+      answeredToday === 0 ? 0 : ((answeredToday - againToday) / answeredToday) * 100;
+    const secondsPerCard = answeredToday === 0 ? 0 : day.totalMs / answeredToday / 1000;
 
     const stat = (value: string, label: string) =>
       el('div.done-stat', {}, el('span.value', { text: value }), el('span.label', { text: label }));
@@ -303,21 +314,23 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
       el(
         'div.done-panel',
         { 'data-done': 'true' },
-        el('h2', { text: answered === 0 ? 'Nothing to study' : 'Deck finished' }),
+        el('h2', { text: answeredToday === 0 ? 'Nothing to study' : 'Deck finished' }),
         el('p.muted', {
           text:
-            answered === 0
+            answeredToday === 0
               ? startedCounts.new + startedCounts.learning + startedCounts.review === 0
                 ? 'This deck has nothing due right now. Come back tomorrow, or add some notes.'
                 : 'Everything here is done for today.'
               : 'Congratulations — that is everything due in this deck today.',
         }),
-        answered === 0
+        answeredToday === 0
           ? null
           : el(
               'div.done-stats',
               {},
-              stat(String(answered), answered === 1 ? 'card' : 'cards'),
+              // "today", not "this session": it is the number someone means
+              // when they say how much they studied.
+              stat(String(answeredToday), answeredToday === 1 ? 'card today' : 'cards today'),
               stat(`${accuracy.toFixed(0)}%`, 'correct'),
               stat(`${secondsPerCard.toFixed(1)}s`, 'per card'),
               stat(`${elapsedMin.toFixed(1)}m`, 'elapsed'),
@@ -327,6 +340,8 @@ async function run(root: HTMLElement, ctx: AppContext, deckId: string): Promise<
           { style: { justifyContent: 'center' } },
           button('Back to decks', () => navigate('/'), { class: 'primary' }),
           button('Add notes', () => navigate(`/add?deck=${encodeURIComponent(deckId)}`), {}),
+          // Undo acts on this sitting's last answer, so it is offered only
+          // when this sitting has one.
           answered > 0 ? button('Undo last (U)', () => void undo(), { class: 'ghost' }) : null,
         ),
       ),

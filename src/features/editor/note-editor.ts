@@ -14,7 +14,7 @@ import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
 import { setSafeHtml } from '../../ui/safe-html.js';
 import { applyPrefix, SNIPPETS } from './snippets.js';
-import { insertAt, SYMBOL_GROUPS } from './symbols.js';
+import { insertAt, looksLikeSwallowedMaths, SYMBOL_GROUPS, textFor } from './symbols.js';
 import type { Deck, Note, NoteType } from '../../domain/types.js';
 
 export interface EditorOptions {
@@ -276,6 +276,16 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
             text: ords.length === 1 ? '1 card' : `${ords.length} cards`,
           }),
         ),
+        // `<a,b>` is parsed as an anchor tag and vanishes. Saying so beats
+        // leaving someone to work out why their ordered pair is missing
+        // from a preview that is otherwise working perfectly.
+        Object.values(fields).some(looksLikeSwallowedMaths)
+          ? el('div.notice', {
+              'data-notice': 'html-eats-angle-brackets',
+              text:
+                'Card text is HTML, so "<" followed by a letter starts a tag: <a,b> disappears. Use the ⟨ ⟩ buttons for an ordered pair, or the < > buttons for a literal bracket.',
+            })
+          : null,
         ords.length === 0
           ? el('div.empty', {
               text:
@@ -467,7 +477,7 @@ function symbolBar(
               symbol.char,
               () => {
                 const target = targetField();
-                if (target) inserters.get(target)?.(symbol.char);
+                if (target) inserters.get(target)?.(textFor(symbol));
               },
               {
                 class: 'ghost symbol-key',

@@ -11,4 +11,5 @@ export {
 } from './queue.js';
 export type { BuiltQueue, QueueContext, QueueCounts, QueueLimits } from './queue.js';
 export { LEECH_TAG, Scheduler, toSchedulingCard } from './service.js';
-export type { AnswerResult, DeckCounts, SchedulerOptions, Session } from './service.js';
+export type {
+  DayStats, AnswerResult, DeckCounts, SchedulerOptions, Session } from './service.js';

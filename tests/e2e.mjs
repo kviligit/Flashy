@@ -689,6 +689,38 @@ async function run(playwright) {
       `${tapTargets.length} keys, smallest ${Math.min(...tapTargets)}px`,
     );
 
+    // `<a,b>` is parsed as an anchor tag and disappears from the card.
+    // The editor has to say so, and offer a way to write it.
+    await page.fill('textarea[data-field="Front"]', '<a,b> er et ordnet par');
+    await page.waitForTimeout(300);
+    check(
+      'the editor warns when HTML will eat an ordered pair',
+      (await page.locator('[data-notice="html-eats-angle-brackets"]').count()) === 1,
+    );
+
+    await page.fill('textarea[data-field="Front"]', '');
+    await page.click('[data-symbol="<"]');
+    await page.click('[data-symbol=">"]');
+    const brackets = await page.inputValue('textarea[data-field="Front"]');
+    check('the < > buttons insert entities, not raw markup', brackets === '&lt;&gt;', brackets);
+
+    await page.fill('textarea[data-field="Front"]', '&lt;a,b&gt;');
+    await page.fill('textarea[data-field="Back"]', 'ordnet par');
+    await page.waitForTimeout(300);
+    const previewText = await page.locator('[data-preview="question"]').first().innerText();
+    check(
+      'and they render as visible angle brackets on the card',
+      previewText.includes('<a,b>'),
+      JSON.stringify(previewText),
+    );
+    check(
+      'while writing proper HTML is not nagged at',
+      (await page.locator('[data-notice="html-eats-angle-brackets"]').count()) === 0,
+    );
+
+    await page.fill('textarea[data-field="Front"]', '');
+    await page.fill('textarea[data-field="Back"]', '');
+
     // Reopening the editor should find the palette as it was left.
     await page.goto(`${BASE}#/`);
     await page.waitForSelector('.deck-row');
@@ -708,8 +740,8 @@ async function run(playwright) {
     });
     check('the topbar shows a build label', build !== null);
     check(
-      'and it is an iteration number',
-      Boolean(build && /^v\d+\+?$/.test(build.text)),
+      'and it is a dotted version',
+      Boolean(build && /^v\d+\.\d+\.\d+\+?$/.test(build.text)),
       build ? build.text : 'absent',
     );
     check(

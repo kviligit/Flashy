@@ -30,10 +30,26 @@ function git(...args) {
 // authority there and git is the fallback for a local build.
 const commit = (process.env.GITHUB_SHA || git('rev-parse', 'HEAD') || 'unknown').slice(0, 7);
 
-// A plain count of commits: the "which iteration is this" number, which
-// a hash cannot answer at a glance. Shallow CI clones report too few, so
-// the workflow fetches full history.
-const iteration = Number(git('rev-list', '--count', 'HEAD')) || 0;
+// A plain count of commits, used as the patch number. Shallow CI clones
+// report too few, so the workflow fetches full history.
+const build = Number(git('rev-list', '--count', 'HEAD')) || 0;
+
+// major.minor come from package.json, so bumping either is an edit to the
+// file that already declares the version rather than a constant hidden in
+// a build script. The patch is the commit count, which makes every build
+// distinct and ordered without anyone having to remember to increment it.
+let major = 0;
+let minor = 0;
+try {
+  const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+  const parts = String(pkg.version ?? '0.0.0').split('.');
+  major = Number(parts[0]) || 0;
+  minor = Number(parts[1]) || 0;
+} catch {
+  // A missing or unreadable package.json leaves 0.0, which is honest.
+}
+
+const version = `${major}.${minor}.${build}`;
 
 const dirty = git('status', '--porcelain') !== '';
 const builtAt = new Date().toISOString();
@@ -44,8 +60,10 @@ const contents = `/**
  */
 
 export interface BuildInfo {
-  /** Commit count — the iteration number shown in the UI. */
-  readonly iteration: number;
+  /** Dotted version: major.minor from package.json, patch = commit count. */
+  readonly version: string;
+  /** Commit count, i.e. the patch number on its own. */
+  readonly build: number;
   /** Short commit hash of the build. */
   readonly commit: string;
   /** True when the tree had uncommitted changes at build time. */
@@ -55,14 +73,15 @@ export interface BuildInfo {
 }
 
 export const BUILD: BuildInfo = {
-  iteration: ${iteration},
+  version: ${JSON.stringify(version)},
+  build: ${build},
   commit: ${JSON.stringify(commit)},
   dirty: ${dirty},
   builtAt: ${JSON.stringify(builtAt)},
 };
 
-/** Short form for a label: \`v247\`, or \`v247+\` for an uncommitted build. */
-export const BUILD_LABEL = \`v\${BUILD.iteration}\${BUILD.dirty ? '+' : ''}\`;
+/** The label shown in the UI: \`v0.1.29\`, or \`v0.1.29+\` when built dirty. */
+export const BUILD_LABEL = \`v\${BUILD.version}\${BUILD.dirty ? '+' : ''}\`;
 `;
 
 mkdirSync(dirname(OUT), { recursive: true });

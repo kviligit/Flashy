@@ -915,3 +915,14 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   font-size: 0.85rem;
   border-color: var(--border-strong);
 }
+
+/* An inline explanation in the editor, for a problem the preview can only
+   show as an absence. */
+.notice {
+  border: 1px solid var(--hard);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
