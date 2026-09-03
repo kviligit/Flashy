@@ -726,6 +726,7 @@ async function run(playwright) {
       offlineText.slice(0, 80),
     );
 
+
     // Touch targets have to survive the narrower iPhone viewport too.
     await appPage.goto(`${BASE}#/add`);
     await appPage.waitForSelector('textarea[data-field]');
@@ -733,6 +734,48 @@ async function run(playwright) {
     await appPage.fill('textarea[data-field="Back"]', 'test');
     await appPage.click('button:has-text("Add note")');
     await appPage.waitForTimeout(200);
+
+    // The browser view is a seven-column table, which on a phone used to be
+    // 641px wide inside a 349px card — the due date and everything right of
+    // it reachable only by dragging sideways. The iPhone checks below
+    // covered the review screen and the deck list, so nothing caught it.
+    await appPage.goto(`${BASE}#/browse`);
+    await appPage.waitForSelector('table.browse tbody tr');
+    const browseLayout = await appPage.evaluate(() => {
+      const scrollers = [];
+      for (const el of document.querySelectorAll('*')) {
+        if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) {
+          scrollers.push(`${el.tagName.toLowerCase()}.${el.className || ''}`.trim());
+        }
+      }
+      const row = document.querySelector('table.browse tbody tr');
+      const text = row ? row.innerText.replace(/\s+/g, ' ') : '';
+      return {
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        scrollers,
+        rowText: text,
+        hasCheckbox: Boolean(row && row.querySelector('input[type="checkbox"]')),
+      };
+    });
+    check('the browser does not scroll the page sideways', browseLayout.pageOverflow <= 1, String(browseLayout.pageOverflow));
+    check(
+      'and nothing inside it scrolls sideways either',
+      browseLayout.scrollers.length === 0,
+      browseLayout.scrollers.slice(0, 3).join(' | '),
+    );
+    // Fitting by hiding the data would be a different bug. The row is
+    // relaid out, so everything that was a column is still on screen.
+    // A new card has no due date or interval — they render as em dashes —
+    // so the check is that the metadata line is there and carries the deck
+    // and the state, not that any particular value is filled in.
+    check(
+      'a row still shows its deck and state alongside the question',
+      /Review|New|Learning|Relearning|Suspended/.test(browseLayout.rowText) &&
+        /Default|French/.test(browseLayout.rowText),
+      browseLayout.rowText.slice(0, 70),
+    );
+    check('and is still selectable', browseLayout.hasCheckbox);
+
     await appPage.goto(`${BASE}#/`);
     await appPage.waitForSelector('.deck-row');
     await appPage.locator('.deck-row .name').first().click();

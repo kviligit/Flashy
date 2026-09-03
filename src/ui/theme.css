@@ -602,6 +602,11 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   .topbar .brand { font-size: 0.95rem; margin-right: 0; }
   .topbar nav { flex: 1 1 100%; gap: 2px; justify-content: space-between; }
   .topbar nav a { padding: 6px 6px; font-size: 0.82rem; white-space: nowrap; }
+  /* Five labels do not fit across a 320px phone, and a nav that overflows
+     drags the whole page sideways. Wrapping is the graceful failure; the
+     alternative is either clipping Settings or shrinking the text past
+     legibility. */
+  .topbar nav { flex-wrap: wrap; row-gap: 4px; }
 
   h1 { font-size: 1.25rem; }
 
@@ -624,7 +629,88 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
   .stat-tile .value { font-size: 1.4rem; }
 
   .modal { max-height: 92vh; }
-  table.browse td.q { max-width: 150px; }
+
+  /*
+   * On a phone the browser stops being a table.
+   *
+   * Seven columns is 641px of table. On a 375px screen that meant the due
+   * date and everything right of it could only be reached by dragging the
+   * table sideways — a horizontal scroll inside a vertical list, which is
+   * miserable to use and easy to miss entirely.
+   *
+   * Hiding columns would fix the scrolling and lose the data. Rows are
+   * relaid out instead: the question on its own line, everything that was
+   * a column beneath it as one dim line of metadata. Nothing is dropped,
+   * and it reads better than seven squeezed columns did.
+   *
+   * Same DOM either way — only `display` changes — so selection, the
+   * checkboxes and the row actions all behave identically.
+   */
+  table.browse,
+  table.browse tbody,
+  table.browse tr,
+  table.browse td { display: block; }
+
+  table.browse thead { display: none; }
+
+  /* Flex rather than stacked blocks, so the tags and the row actions share
+     a line instead of each claiming one. Four rows fit on an SE screen
+     this way; stacked, it was two. */
+  table.browse tr {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 6px;
+    row-gap: 2px;
+    padding: 8px 10px 8px 34px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.browse td { padding: 0; border: none; }
+
+  /* Out of the flow so the question can use the full width. */
+  table.browse .col-pick {
+    position: absolute;
+    left: 10px;
+    top: 12px;
+  }
+
+  table.browse td.q {
+    flex: 1 1 100%;
+    max-width: none;
+    white-space: normal;
+    overflow: visible;
+    font-size: 0.95rem;
+    line-height: 1.35;
+  }
+
+  /* Everything that was a column, as one line of metadata. */
+  table.browse .col-deck,
+  table.browse .col-state,
+  table.browse .col-due,
+  table.browse .col-interval,
+  table.browse .col-reps {
+    display: inline;
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+  table.browse .col-state ~ .col-due::before,
+  table.browse .col-due ~ .col-interval::before,
+  table.browse .col-interval ~ .col-reps::before,
+  table.browse .col-deck ~ .col-state::before { content: ' · '; }
+
+  /* Tags take the room that is left; the actions keep to the right edge. */
+  table.browse .col-tags { flex: 1 1 auto; display: block; }
+  table.browse .col-tags:empty { display: none; }
+
+  table.browse .col-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    display: flex;
+    gap: 4px;
+  }
+  table.browse .col-actions button { padding: 4px 10px; font-size: 0.82rem; }
 }
 
 /*
