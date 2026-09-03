@@ -879,25 +879,48 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 
 /* --- Maths symbol palette ------------------------------------------ */
 
-.symbol-bar { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
-.symbol-bar > summary {
-  cursor: pointer;
-  color: var(--text-dim);
-  font-size: 0.85rem;
-  /* A 44px row, so opening the palette is a comfortable tap. */
-  padding: 10px 0;
-  list-style-position: inside;
-}
-.symbol-bar[open] > summary { margin-bottom: 4px; }
+/*
+ * The palette opens *over* the note-type and deck controls, not above the
+ * fields. Writing a sentence with five symbols in it means five trips to
+ * the palette, and a panel that pushed the fields down would move the text
+ * out from under the cursor on every one of them.
+ */
+.symbol-anchor { position: relative; }
 
-.symbol-group { margin-bottom: 8px; }
-.symbol-group-name {
-  display: block;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 4px;
+.symbol-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.symbol-tab { font-size: 0.82rem; padding: 8px 10px; min-height: 40px; }
+.symbol-tab.active {
+  background: var(--surface-3);
+  color: var(--text);
+  border-color: var(--accent);
 }
+
+.symbol-popover {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 5;
+  /* Capped rather than sized to the block beneath it: that block is only
+     about 120px tall and the largest category needs three rows of 44px
+     keys. It is free to overhang the block and cover the field labels;
+     what it must never reach is the textareas themselves, which an
+     end-to-end check asserts for every category. */
+  max-height: 224px;
+  overflow-y: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+}
+.symbol-popover-head { display: flex; justify-content: flex-end; }
+.symbol-close {
+  min-width: 32px;
+  min-height: 28px;
+  padding: 0 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
 .symbol-keys { display: flex; flex-wrap: wrap; gap: 4px; }
 
 /* Square, and large enough to hit: the whole point is not having to aim

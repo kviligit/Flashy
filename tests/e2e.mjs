@@ -760,46 +760,104 @@ async function run(playwright) {
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
     // --- maths symbols ---
-    // The palette exists so these do not have to be hunted for on a phone
-    // keyboard, so what matters is that a tap lands the glyph where the
-    // caret was — not at the end of the field.
+    // The palette opens over the note-type controls, never over the
+    // fields: a sentence with several symbols in it means several trips
+    // to the palette, and a panel that moved the text would be useless.
     await page.goto(`${BASE}#/add`);
     await page.waitForSelector('textarea[data-field]');
     check(
       'the symbol palette starts closed',
-      (await page.locator('[data-symbols] [data-symbol="∈"]').isVisible()) === false,
+      (await page.locator('[data-symbol="∈"]').count()) === 0,
     );
 
-    await page.click('[data-symbols] > summary');
-    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
+    const fieldBox = async () => page.locator('textarea[data-field="Front"]').boundingBox();
+    const closedAt = await fieldBox();
 
-    await page.fill('textarea[data-field="Front"]', 'A  B');
-    // Put the caret between the two spaces.
+    await page.locator('[data-category="Sets"]').click({ force: true });
+    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
+    const openAt = await fieldBox();
+    check(
+      'opening it does not move the fields',
+      Math.abs(openAt.y - closedAt.y) < 1,
+      `moved ${Math.round(openAt.y - closedAt.y)}px`,
+    );
+
+    // Every category, because the tallest is the one that would reach the
+    // field, and which one that is changes as symbols are added.
+    const categories = await page
+      .locator('[data-category]')
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-category')));
+    let worst = { name: null, gap: Infinity, scrolls: false };
+    for (const name of categories) {
+      await page.locator(`[data-category="${name}"]`).click({ force: true });
+      await page.waitForTimeout(120);
+      const m = await page.evaluate(() => {
+        const pop = document.querySelector('.symbol-popover');
+        const box = pop.getBoundingClientRect();
+        const field = document.querySelector('textarea[data-field="Front"]').getBoundingClientRect();
+        return { gap: field.top - box.bottom, scrolls: pop.scrollHeight > pop.clientHeight + 1 };
+      });
+      if (m.gap < worst.gap) worst = { name, gap: m.gap, scrolls: m.scrolls };
+    }
+    // Flush is fine; overlapping is not. On a wide screen the panel is
+    // content-sized and happens to end exactly where the field begins.
+    check(
+      'and no category ever covers the field',
+      worst.gap > -1,
+      `${worst.name} overlapped by ${(-worst.gap).toFixed(1)}px`,
+    );
+    check(
+      'nor has to be scrolled to reach its symbols',
+      worst.scrolls === false,
+      `${worst.name} scrolls`,
+    );
+
+    // Switching category mid-sentence must not mean closing first.
+    await page.locator('[data-category="Sets"]').click({ force: true });
+    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
+    await page.locator('[data-category="Logic"]').click({ force: true });
+    await page.waitForSelector('[data-symbol="∀"]', { state: 'visible' });
+    check('the category buttons stay reachable while it is open', true);
+
+    // The point of the whole thing: several symbols into one sentence,
+    // with the caret where it should be after each.
+    await page.locator('[data-category="Sets"]').click({ force: true });
+    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
+    await page.fill('textarea[data-field="Front"]', 'x  A  B');
     await page.evaluate(() => {
       const box = document.querySelector('textarea[data-field="Front"]');
       box.focus();
       box.setSelectionRange(2, 2);
     });
-    await page.click('[data-symbol="⊆"]');
-    const afterOne = await page.inputValue('textarea[data-field="Front"]');
-    check('a symbol is inserted at the caret', afterOne === 'A ⊆ B', JSON.stringify(afterOne));
-
-    // And the caret follows it, so a second tap does not jump elsewhere.
-    await page.click('[data-symbol="∅"]');
-    const afterTwo = await page.inputValue('textarea[data-field="Front"]');
-    check('and the caret follows, so symbols chain', afterTwo === 'A ⊆∅ B', JSON.stringify(afterTwo));
+    await page.click('[data-symbol="∈"]');
+    await page.evaluate(() => {
+      const box = document.querySelector('textarea[data-field="Front"]');
+      box.setSelectionRange(6, 6);
+    });
+    await page.click('[data-symbol="∪"]');
+    const sentence = await page.inputValue('textarea[data-field="Front"]');
+    check('several symbols go into one sentence', sentence === 'x ∈ A ∪ B', JSON.stringify(sentence));
+    check(
+      'and the palette is still open afterwards',
+      await page.locator('[data-symbol="∈"]').isVisible(),
+    );
 
     const tapTargets = await page
-      .locator('[data-symbols] .symbol-key')
+      .locator('.symbol-key')
       .evaluateAll((nodes) => nodes.map((n) => Math.round(n.getBoundingClientRect().height)));
     check(
       'the symbol keys are tappable',
-      tapTargets.length > 20 && tapTargets.every((h) => h >= 44),
+      tapTargets.length > 5 && tapTargets.every((h) => h >= 44),
       `${tapTargets.length} keys, smallest ${Math.min(...tapTargets)}px`,
     );
 
+    await page.click('[data-action="close-symbols"]');
+    check(
+      'and it closes',
+      (await page.locator('[data-symbol="∈"]').count()) === 0,
+    );
+
     // `<a,b>` is parsed as an anchor tag and disappears from the card.
-    // The editor has to say so, and offer a way to write it.
     await page.fill('textarea[data-field="Front"]', '<a,b> er et ordnet par');
     await page.waitForTimeout(300);
     check(
@@ -808,10 +866,13 @@ async function run(playwright) {
     );
 
     await page.fill('textarea[data-field="Front"]', '');
+    await page.locator('[data-category="Other"]').click({ force: true });
+    await page.waitForSelector('[data-symbol="<"]', { state: 'visible' });
     await page.click('[data-symbol="<"]');
     await page.click('[data-symbol=">"]');
     const brackets = await page.inputValue('textarea[data-field="Front"]');
     check('the < > buttons insert entities, not raw markup', brackets === '&lt;&gt;', brackets);
+    await page.click('[data-action="close-symbols"]');
 
     await page.fill('textarea[data-field="Front"]', '&lt;a,b&gt;');
     await page.fill('textarea[data-field="Back"]', 'ordnet par');
@@ -829,16 +890,6 @@ async function run(playwright) {
 
     await page.fill('textarea[data-field="Front"]', '');
     await page.fill('textarea[data-field="Back"]', '');
-
-    // Reopening the editor should find the palette as it was left.
-    await page.goto(`${BASE}#/`);
-    await page.waitForSelector('.deck-row');
-    await page.goto(`${BASE}#/add`);
-    await page.waitForSelector('textarea[data-field]');
-    check(
-      'the palette remembers that it was opened',
-      await page.locator('[data-symbols] [data-symbol="∈"]').isVisible(),
-    );
 
     // --- build label ---
     // It exists so a user can say "I am on v28" and have that mean the

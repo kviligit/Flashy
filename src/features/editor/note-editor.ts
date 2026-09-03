@@ -364,9 +364,17 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
         el(
           'div.card.col',
           {},
-          el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
-          snippetBar(() => lastFocusedField, prefixers),
-          symbolBar(() => lastFocusedField, inserters),
+          // The palette pops up over this block rather than pushing it
+          // down, so the fields below never move while symbols are being
+          // inserted into a sentence.
+          symbolTabs(() => lastFocusedField, inserters, () =>
+            el(
+              'div.editor-top',
+              {},
+              el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
+              snippetBar(() => lastFocusedField, prefixers),
+            ),
+          ),
           inputs,
           field('Tags', tagsInput),
           el('p.faint', {
@@ -441,75 +449,145 @@ function snippetBar(
 /**
  * The mathematical symbol palette.
  *
- * Collapsed by default, and the choice is remembered: someone building a
- * discrete-maths deck wants it open for an hour, and someone building a
- * vocabulary deck never wants to see it. Fifty buttons unfolded on every
- * visit would be worse than the emoji keyboard for everyone in the second
- * group.
+ * One button per category, and pressing one opens that category's symbols
+ * over the note-type and deck controls above the fields. Overlaying
+ * rather than expanding is the point: a sentence with five symbols in it
+ * means five trips to the palette, and a panel that pushed the fields
+ * down would move the text out from under the cursor every time it opened
+ * or closed.
  *
- * `details`/`summary` rather than a button and a class, because it gets
- * keyboard operation, the open/closed state and the disclosure semantics
- * from the browser instead of from code that has to be maintained.
+ * The panel stays open after an insertion, and the inserter puts the
+ * caret back in the field, so the next character typed lands where it
+ * should without anyone having to tap back into the textarea.
  */
-function symbolBar(
+function symbolTabs(
   targetField: () => string | undefined,
   inserters: Map<string, (text: string) => void>,
-): HTMLElement | null {
-  if (inserters.size === 0) return null;
+  covered: () => HTMLElement,
+): HTMLElement {
+  const block = covered();
+  if (inserters.size === 0) return block;
 
-  const panel = el('details.symbol-bar', { 'data-symbols': 'true' }) as HTMLDetailsElement;
-  if (symbolsOpen()) panel.open = true;
-  panel.addEventListener('toggle', () => rememberSymbols(panel.open));
+  const popover = el('div.symbol-popover', { hidden: true, 'data-symbols': 'true' });
+  const tabs = el('div.symbol-tabs', { role: 'tablist' });
+  let open: string | null = null;
 
-  render(
-    panel,
-    el('summary', { text: 'Maths symbols' }),
-    SYMBOL_GROUPS.map((group) =>
+  const show = (name: string | null): void => {
+    open = name;
+    rememberCategory(name);
+
+    for (const tab of Array.from(tabs.children)) {
+      const isOpen = tab.getAttribute('data-category') === name;
+      tab.classList.toggle('active', isOpen);
+      tab.setAttribute('aria-expanded', String(isOpen));
+    }
+
+    if (name === null) {
+      // Emptied, not just hidden: leaving a category's buttons in the DOM
+      // behind `hidden` means anything looking for a symbol still finds
+      // one, which is confusing for assistive technology and for tests.
+      render(popover);
+      popover.hidden = true;
+      return;
+    }
+
+    const group = SYMBOL_GROUPS.find((candidate) => candidate.name === name);
+    if (!group) {
+      popover.hidden = true;
+      return;
+    }
+
+    render(
+      popover,
+      // No category heading: the active tab directly above already says
+      // which group this is, and the row it would take is a row of keys.
       el(
-        'div.symbol-group',
+        'div.symbol-popover-head',
         {},
-        el('span.faint.symbol-group-name', { text: group.name }),
-        el(
-          'div.symbol-keys',
-          {},
-          group.symbols.map((symbol) =>
-            button(
-              symbol.char,
-              () => {
-                const target = targetField();
-                if (target) inserters.get(target)?.(textFor(symbol));
-              },
-              {
-                class: 'ghost symbol-key',
-                'data-symbol': symbol.char,
-                title: `${symbol.char} — ${symbol.name}`,
-                'aria-label': symbol.name,
-              },
-            ),
+        button('✕', () => show(null), {
+          class: 'ghost symbol-close',
+          'data-action': 'close-symbols',
+          title: 'Close the symbol palette',
+          'aria-label': 'Close the symbol palette',
+        }),
+      ),
+      el(
+        'div.symbol-keys',
+        {},
+        group.symbols.map((symbol) =>
+          button(
+            symbol.char,
+            () => {
+              const target = targetField();
+              if (target) inserters.get(target)?.(textFor(symbol));
+              // Deliberately left open: the next symbol is usually one tap
+              // away, and closing after each would double the work.
+            },
+            {
+              class: 'ghost symbol-key',
+              'data-symbol': symbol.char,
+              title: `${symbol.char} — ${symbol.name}`,
+              'aria-label': symbol.name,
+            },
           ),
         ),
+      ),
+    );
+    popover.hidden = false;
+  };
+
+  render(
+    tabs,
+    SYMBOL_GROUPS.map((group) =>
+      button(
+        group.name,
+        () => show(open === group.name ? null : group.name),
+        {
+          class: 'ghost symbol-tab',
+          'data-category': group.name,
+          'aria-expanded': 'false',
+        },
       ),
     ),
   );
 
-  return panel;
+  // The category buttons sit above the block the panel covers, so they
+  // stay reachable while it is open: switching from Sets to Logic
+  // mid-sentence is one tap, not close-then-reopen.
+  const anchor = el('div.symbol-anchor', {}, block, popover);
+  const wrapper = el('div.symbol-palette', {}, tabs, anchor);
+
+  // Escape closes it, which is what every other overlay in the app does
+  // and what a keyboard user will try first.
+  wrapper.addEventListener('keydown', (ev) => {
+    if ((ev as KeyboardEvent).key === 'Escape' && open !== null) {
+      ev.preventDefault();
+      show(null);
+    }
+  });
+
+  const remembered = rememberedCategory();
+  if (remembered && SYMBOL_GROUPS.some((group) => group.name === remembered)) show(remembered);
+
+  return wrapper;
 }
 
-const SYMBOLS_OPEN_KEY = 'flashy.editor.symbolsOpen';
+const SYMBOLS_CATEGORY_KEY = 'flashy.editor.symbolCategory';
 
-function symbolsOpen(): boolean {
+function rememberedCategory(): string | null {
   try {
-    return localStorage.getItem(SYMBOLS_OPEN_KEY) === 'true';
+    return localStorage.getItem(SYMBOLS_CATEGORY_KEY);
   } catch {
-    // Private browsing can refuse storage; a closed palette is the right
-    // default when we cannot know better.
-    return false;
+    // Private browsing can refuse storage; closed is the right default
+    // when we cannot know better.
+    return null;
   }
 }
 
-function rememberSymbols(open: boolean): void {
+function rememberCategory(name: string | null): void {
   try {
-    localStorage.setItem(SYMBOLS_OPEN_KEY, open ? 'true' : 'false');
+    if (name === null) localStorage.removeItem(SYMBOLS_CATEGORY_KEY);
+    else localStorage.setItem(SYMBOLS_CATEGORY_KEY, name);
   } catch {
     // Not remembering is a small loss; failing to open the palette is not.
   }
