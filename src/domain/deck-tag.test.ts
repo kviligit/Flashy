@@ -9,19 +9,27 @@ test('a simple deck name is its own tag', () => {
   assert.equal(deckTag('Norsk'), 'Norsk');
 });
 
-test('spaces become hyphens, because tags are split on whitespace', () => {
+test('spaces become underscores, because tags are split on whitespace', () => {
   // Left alone, "Discrete Maths" would arrive as two tags.
-  assert.equal(deckTag('Discrete Maths'), 'Discrete-Maths');
-  assert.equal(deckTag('  Discrete   Maths  '), 'Discrete-Maths');
+  assert.equal(deckTag('Discrete Maths'), 'Discrete_Maths');
+  assert.equal(deckTag('  Discrete   Maths  '), 'Discrete_Maths');
 });
 
 test('commas too, since the editor splits on those as well', () => {
-  assert.equal(deckTag('Logic, sets'), 'Logic-sets');
+  assert.equal(deckTag('Logic, sets'), 'Logic_sets');
+});
+
+test('a hyphen in the deck name is left alone', () => {
+  // The reason underscore was chosen over hyphen: hyphens occur in real
+  // names, so using one as the space replacement would make "Set-theory"
+  // and "Set theory" indistinguishable.
+  assert.equal(deckTag('Well-Ordering'), 'Well-Ordering');
+  assert.equal(deckTag('Well-Ordering Theorem'), 'Well-Ordering_Theorem');
 });
 
 test('nesting is preserved, so tag:Maths still finds the subdecks', () => {
   assert.equal(deckTag('Maths::Sets'), 'Maths::Sets');
-  assert.equal(deckTag('Maths::Set theory'), 'Maths::Set-theory');
+  assert.equal(deckTag('Maths::Set theory'), 'Maths::Set_theory');
   assert.equal(deckTag('Maths::Sets::Cardinality'), 'Maths::Sets::Cardinality');
 });
 
