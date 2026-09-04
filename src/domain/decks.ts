@@ -105,12 +105,26 @@ export function normaliseDeckName(raw: string): string {
  * Anki too. "Maths::Set theory" becomes "Maths::Set-theory", so filtering
  * by `tag:Maths` still finds everything underneath it.
  *
+ * Underscore rather than hyphen, for two reasons. It is what Anki uses,
+ * and this app borrows its model, so a deck that travels between the two
+ * keeps the same tag. And hyphens turn up in real deck names — "Well-
+ * Ordering", "Set-theory" — where an underscore almost never does, so the
+ * mapping stays close to reversible: seeing "Set_theory" you can be
+ * fairly sure the deck was "Set theory", where "Set-theory" could have
+ * been either.
+ *
+ * The ambiguity is not eliminated, only made rare. A deck genuinely named
+ * "A_B" produces the same tag as one named "A B". That is accepted rather
+ * than escaped around: the tag is a convenience for searching, not a key,
+ * and an escaping scheme would make every tag uglier to read and to type
+ * in order to fix a case that does not really happen.
+ *
  * Returns an empty string when nothing survives, which the caller should
  * read as "no tag for this deck" rather than as a tag.
  */
 export function deckTag(name: string): string {
   return deckParts(name)
-    .map((part) => part.trim().replace(/[\s,]+/g, '-'))
+    .map((part) => part.trim().replace(/[\s,]+/g, '_'))
     .filter((part) => part.length > 0)
     .join(DECK_SEPARATOR);
 }
