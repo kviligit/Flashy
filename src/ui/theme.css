@@ -880,15 +880,33 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 /* --- Maths symbol palette ------------------------------------------ */
 
 /*
- * The palette opens *over* the note-type and deck controls, not above the
- * fields. Writing a sentence with five symbols in it means five trips to
- * the palette, and a panel that pushed the fields down would move the text
- * out from under the cursor on every one of them.
+ * One palette per field, sitting directly above that field's textarea.
+ * With an on-screen keyboard up there is very little page visible, and
+ * the symbols have to be inside what is left rather than a scroll away.
+ *
+ * The panel opens upward, over whatever is above it: the field it belongs
+ * to must stay visible while symbols are going into it, and anything
+ * higher up the page is not being typed into.
  */
-.symbol-anchor { position: relative; }
+.symbol-palette { position: relative; }
 
-.symbol-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
-.symbol-tab { font-size: 0.82rem; padding: 8px 10px; min-height: 40px; }
+.symbol-tabs {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 4px;
+}
+.symbol-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 0.75rem;
+  padding: 7px 2px;
+  min-height: 34px;
+  /* Five categories share one line; a long name shrinks rather than
+     wrapping the row onto a second line and pushing the field down. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .symbol-tab.active {
   background: var(--surface-3);
   color: var(--text);
@@ -897,19 +915,15 @@ table.browse td.suspended { color: var(--text-faint); font-style: italic; }
 
 .symbol-popover {
   position: absolute;
-  inset: 0 0 auto 0;
+  bottom: 100%;
+  left: 0;
+  right: 0;
   z-index: 5;
-  /* Capped rather than sized to the block beneath it: that block is only
-     about 120px tall and the largest category needs three rows of 44px
-     keys. It is free to overhang the block and cover the field labels;
-     what it must never reach is the textareas themselves, which an
-     end-to-end check asserts for every category. */
-  max-height: 224px;
-  overflow-y: auto;
+  margin-bottom: 4px;
   background: var(--surface-2);
   border: 1px solid var(--accent);
   border-radius: 8px;
-  padding: 8px;
+  padding: 6px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
 }
 .symbol-popover-head { display: flex; justify-content: flex-end; }
