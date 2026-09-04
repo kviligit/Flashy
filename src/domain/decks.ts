@@ -94,3 +94,23 @@ export function normaliseDeckName(raw: string): string {
     .filter((part) => part.length > 0)
     .join(DECK_SEPARATOR);
 }
+
+/**
+ * The tag that stands for a deck.
+ *
+ * Tags are split on whitespace and commas, so a deck called "Discrete
+ * Maths" cannot be a tag as it stands — it would arrive as two. Each
+ * level of the name has its separators collapsed to a hyphen, and the
+ * levels are rejoined with `::`, which is what a nested tag looks like in
+ * Anki too. "Maths::Set theory" becomes "Maths::Set-theory", so filtering
+ * by `tag:Maths` still finds everything underneath it.
+ *
+ * Returns an empty string when nothing survives, which the caller should
+ * read as "no tag for this deck" rather than as a tag.
+ */
+export function deckTag(name: string): string {
+  return deckParts(name)
+    .map((part) => part.trim().replace(/[\s,]+/g, '-'))
+    .filter((part) => part.length > 0)
+    .join(DECK_SEPARATOR);
+}
