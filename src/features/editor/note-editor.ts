@@ -8,7 +8,14 @@ import { toast } from '../../ui/toast.js';
 import { navigate } from '../../app/router.js';
 import type { AppContext } from '../../app/context.js';
 import { generateOrds, renderCard } from '../../domain/cards.js';
-import { addNote, completeFields, parseTags, updateNote } from '../../collection/notes.js';
+import { deckTag } from '../../domain/decks.js';
+import {
+  addNote,
+  completeFields,
+  parseTags,
+  replaceTag,
+  updateNote,
+} from '../../collection/notes.js';
 import { addMedia } from '../../collection/media.js';
 import { MediaResolver } from '../../ui/media-resolver.js';
 import { deferMediaSrc } from '../../domain/media.js';
@@ -61,7 +68,26 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
     decks[0]!.id;
 
   let fields: Record<string, string> = completeFields(noteType, editing?.fields ?? {});
-  let tagsText = (editing?.tags ?? []).join(' ');
+
+  /**
+   * The deck's name, as a tag, on new notes only.
+   *
+   * A deck already says where a card lives; the tag is what makes that
+   * searchable from the browser and survives the card being moved later.
+   * It is put in the tags field rather than added silently on save, so it
+   * is visible before the note exists and can simply be deleted for the
+   * one note where it is not wanted.
+   *
+   * Editing an existing note leaves its tags alone: the deck tag would be
+   * a change nobody asked for, applied to notes filed long ago.
+   */
+  const deckTagFor = (id: string): string =>
+    editing ? '' : deckTag(decks.find((d: Deck) => d.id === id)?.name ?? '');
+
+  let autoTag = deckTagFor(deckId);
+  let tagsText = editing
+    ? (editing.tags ?? []).join(' ')
+    : replaceTag('', '', autoTag);
   const media = new MediaResolver(ctx.db);
 
   const draw = (): void => {
@@ -242,6 +268,12 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
         value: deckId,
         onChange: (ev: Event) => {
           deckId = (ev.target as HTMLSelectElement).value;
+          // Follow the deck: the old deck's tag goes, the new one's
+          // arrives, and anything typed by hand is left untouched.
+          const next = deckTagFor(deckId);
+          tagsText = replaceTag(tagsText, autoTag, next);
+          autoTag = next;
+          tagsInput.value = tagsText;
         },
       },
     );
@@ -249,6 +281,8 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
 
     const tagsInput = input({
       value: tagsText,
+      'data-tags': 'true',
+      'aria-label': 'Tags',
       placeholder: 'space-separated',
       onInput: (ev: Event) => {
         tagsText = (ev.target as HTMLInputElement).value;

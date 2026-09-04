@@ -54,6 +54,24 @@ export function normaliseTags(tags: readonly string[]): string[] {
   return [...seen].sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Swap one tag for another in the text the editor holds.
+ *
+ * Used when the deck changes while a new note is being written: the tag
+ * for the old deck goes, the tag for the new one arrives, and everything
+ * the user typed themselves stays where they put it.
+ *
+ * Adding is skipped when the tag is already there, so switching away and
+ * back does not leave a duplicate, and removing is by exact token so a
+ * deck tag of "Maths" never eats a hand-typed "Maths::Exam".
+ */
+export function replaceTag(raw: string, remove: string, add: string): string {
+  const tokens = raw.split(/[\s,]+/).filter((token) => token.length > 0);
+  const kept = tokens.filter((token) => token !== remove);
+  if (add && !kept.includes(add)) kept.push(add);
+  return kept.join(' ');
+}
+
 /** Split a space-separated tag string, as typed in the editor. */
 export function parseTags(raw: string): string[] {
   return normaliseTags(raw.split(/[\s,]+/));

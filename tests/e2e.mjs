@@ -650,6 +650,43 @@ async function run(playwright) {
     check('safe links survive and are given rel', kept.link.includes('rel="noopener noreferrer nofollow"'), kept.link);
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
+    // --- the deck's name as a tag ---
+    // Put in the field rather than added on save, so it is visible before
+    // the note exists and can be deleted for the one note that wants
+    // something else.
+    await page.goto(`${BASE}#/add`);
+    await page.waitForSelector('textarea[data-field]');
+    const seededTags = await page.inputValue('input[data-tags]');
+    check('a new note is tagged with its deck', seededTags.split(/\s+/).includes('Default'), seededTags);
+
+    await page.fill('textarea[data-field="Front"]', 'tagged by deck');
+    await page.fill('textarea[data-field="Back"]', 'yes');
+    await page.click('button:has-text("Add note")');
+    await page.waitForTimeout(400);
+
+    await page.goto(`${BASE}#/browse?q=${encodeURIComponent('tag:Default')}`);
+    await page.waitForTimeout(600);
+    const tagged = await page.evaluate(() =>
+      [...document.querySelectorAll('table.browse tbody tr')].some((row) =>
+        row.innerText.includes('tagged by deck'),
+      ),
+    );
+    check('and the tag is on the saved note, findable by tag:', tagged);
+
+    // Editing an existing note must not add it: that would be a change
+    // nobody asked for, applied to notes filed long ago.
+    await page.goto(`${BASE}#/browse`);
+    await page.waitForSelector('table.browse tbody tr');
+    await page.locator('table.browse tbody tr', { hasText: 'tagged by deck' }).first()
+      .locator('button:has-text("Edit")').click();
+    await page.waitForSelector('textarea[data-field]');
+    const editTags = await page.inputValue('input[data-tags]');
+    check(
+      'editing a note leaves its tags alone',
+      editTags.trim() === 'Default',
+      JSON.stringify(editTags),
+    );
+
     // --- maths symbols ---
     // A palette above each field, because with an on-screen keyboard up
     // there is very little page left and the symbols have to be in it.
