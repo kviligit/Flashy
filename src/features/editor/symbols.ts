@@ -59,6 +59,9 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
       { char: '×', name: 'Cartesian product' },
       { char: '∅', name: 'empty set' },
       { char: '𝒫', name: 'power set' },
+      { char: '⟨', name: 'left angle bracket, for an ordered pair' },
+      { char: '⟩', name: 'right angle bracket, for an ordered pair' },
+      { char: '…', name: 'ellipsis, for listing a set' },
       // ASCII, not U+2223: it is what a keyboard produces, what people
       // already type for a|b, and it reads identically. A second,
       // indistinguishable bar button would be a coin toss on a phone,
@@ -67,7 +70,7 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
     ],
   },
   {
-    name: 'Number sets',
+    name: 'Numbers',
     symbols: [
       { char: 'ℕ', name: 'natural numbers' },
       { char: 'ℤ', name: 'integers' },
@@ -109,9 +112,6 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
     symbols: [
       { char: '<', name: 'less than (literal, safe on a card)', insert: '&lt;' },
       { char: '>', name: 'greater than (literal, safe on a card)', insert: '&gt;' },
-      { char: '…', name: 'ellipsis' },
-      { char: '⟨', name: 'left angle bracket' },
-      { char: '⟩', name: 'right angle bracket' },
       { char: '⌈', name: 'left ceiling' },
       { char: '⌉', name: 'right ceiling' },
       { char: '⌊', name: 'left floor' },
@@ -119,7 +119,10 @@ export const SYMBOL_GROUPS: readonly SymbolGroup[] = [
       { char: '∑', name: 'sum' },
       { char: '∏', name: 'product' },
       { char: '∞', name: 'infinity' },
-      { char: 'ℵ', name: 'aleph' },
+      // Set theory, but niche enough that it would cost Sets a fourth row
+      // holding one symbol — and it falls back to a Hebrew face in most
+      // sans fonts, so it looks out of place beside the maths glyphs.
+      { char: 'ℵ', name: 'aleph, for the size of an infinite set' },
     ],
   },
 ];

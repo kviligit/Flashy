@@ -68,6 +68,9 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
     /** Field name -> apply a prefix to that field's current text. */
     const prefixers = new Map<string, (text: string) => void>();
     const inserters = new Map<string, (text: string) => void>();
+    // Only one palette open at a time: the panel above Back covers the
+    // Front field, and two of them open at once is just clutter.
+    const palettes = new Set<() => void>();
     /**
      * Which field the snippet buttons act on.
      *
@@ -208,6 +211,9 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
             title: 'Add an image or sound. You can also drag one in, or paste a screenshot.',
           }),
         ),
+        // Directly above this field's own textarea, and inserting into
+        // that field rather than into whichever one was last touched.
+        symbolPalette(f.name, inserters, palettes, control),
         control,
         picker,
       );
@@ -364,17 +370,8 @@ async function mount(root: HTMLElement, ctx: AppContext, options: EditorOptions)
         el(
           'div.card.col',
           {},
-          // The palette pops up over this block rather than pushing it
-          // down, so the fields below never move while symbols are being
-          // inserted into a sentence.
-          symbolTabs(() => lastFocusedField, inserters, () =>
-            el(
-              'div.editor-top',
-              {},
-              el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
-              snippetBar(() => lastFocusedField, prefixers),
-            ),
-          ),
+          el('div.row', {}, field('Type', noteTypeSelect), field('Deck', deckSelect)),
+          snippetBar(() => lastFocusedField, prefixers),
           inputs,
           field('Tags', tagsInput),
           el('p.faint', {
@@ -460,21 +457,102 @@ function snippetBar(
  * caret back in the field, so the next character typed lands where it
  * should without anyone having to tap back into the textarea.
  */
-function symbolTabs(
-  targetField: () => string | undefined,
-  inserters: Map<string, (text: string) => void>,
-  covered: () => HTMLElement,
-): HTMLElement {
-  const block = covered();
-  if (inserters.size === 0) return block;
+/**
+ * Keep an upward-opening panel inside the viewport.
+ *
+ * The panel opens above its field so the field stays visible while
+ * symbols go into it. Near the top of a short viewport — which is what an
+ * on-screen keyboard leaves — there may not be room above, and the first
+ * rows of symbols end up off-screen.
+ *
+ * Two moves, in order. Scroll the page down so the panel comes into view,
+ * which costs nothing and keeps every symbol reachable. If the page is
+ * already at the top and cannot scroll, cap the panel to the room that
+ * actually exists and let it scroll internally — worse, but reachable,
+ * which a clipped panel is not.
+ */
+function fitAbove(popover: HTMLElement, tabs: HTMLElement, control: HTMLElement): void {
+  const gap = 8;
+  // The top bar is sticky, so "inside the viewport" is not good enough: a
+  // panel flush with y=0 has its first row of symbols behind the nav.
+  const bar = document.querySelector('.topbar');
+  const ceiling = (bar ? bar.getBoundingClientRect().bottom : 0) + gap;
 
-  const popover = el('div.symbol-popover', { hidden: true, 'data-symbols': 'true' });
-  const tabs = el('div.symbol-tabs', { role: 'tablist' });
+  popover.style.maxHeight = '';
+  popover.style.overflowY = '';
+
+  // The field wins. It is the thing being typed into, and a panel that
+  // pushed it off the bottom of a keyboard-sized viewport would have
+  // defeated the point of moving the palette here at all.
+  const overshoot = control.getBoundingClientRect().bottom - (window.innerHeight - gap);
+  if (overshoot > 0) window.scrollBy(0, overshoot);
+
+  // Then bring the panel down out from under the bar, as far as the page
+  // will allow without pushing the field back off.
+  const room = () => tabs.getBoundingClientRect().top - ceiling - gap;
+  if (popover.offsetHeight > room()) {
+    const slack = Math.max(
+      0,
+      window.innerHeight - gap - control.getBoundingClientRect().bottom,
+    );
+    if (slack > 0) window.scrollBy(0, -Math.min(slack, popover.offsetHeight - room()));
+  }
+
+  // Whatever room is left after that is what the panel gets. Scrolling a
+  // few rows inside it is worse than not scrolling, and far better than
+  // symbols that cannot be reached at all.
+  const available = room();
+  if (popover.offsetHeight > available) {
+    popover.style.maxHeight = `${Math.max(120, available)}px`;
+    popover.style.overflowY = 'auto';
+  }
+}
+
+/**
+ * A symbol palette for one field.
+ *
+ * It sits directly above that field's textarea and inserts into that
+ * field only — no guessing at which field was last touched. With an
+ * on-screen keyboard up there is very little page left, and this is the
+ * part that has to be inside it.
+ *
+ * The panel opens *upward*, over whatever is above: the field it belongs
+ * to must stay visible while symbols are being put into it, and anything
+ * higher up the page is not being typed into.
+ */
+function symbolPalette(
+  fieldName: string,
+  inserters: Map<string, (text: string) => void>,
+  palettes: Set<() => void>,
+  control: HTMLElement,
+): HTMLElement {
+  const popover = el('div.symbol-popover', { hidden: true, 'data-symbols': fieldName });
+  const tabs = el('div.symbol-tabs', { 'data-tabs': fieldName });
   let open: string | null = null;
 
+  const close = (): void => {
+    open = null;
+    render(popover);
+    popover.hidden = true;
+    popover.style.maxHeight = '';
+    popover.style.overflowY = '';
+    for (const tab of Array.from(tabs.children)) {
+      tab.classList.remove('active');
+      tab.setAttribute('aria-expanded', 'false');
+    }
+  };
+  palettes.add(close);
+
   const show = (name: string | null): void => {
+    if (name === null || name === open) {
+      close();
+      return;
+    }
+
+    // Close whatever else is open first, including this one's own panel,
+    // so switching category re-renders from a clean state.
+    for (const other of palettes) other();
     open = name;
-    rememberCategory(name);
 
     for (const tab of Array.from(tabs.children)) {
       const isOpen = tab.getAttribute('data-category') === name;
@@ -482,29 +560,15 @@ function symbolTabs(
       tab.setAttribute('aria-expanded', String(isOpen));
     }
 
-    if (name === null) {
-      // Emptied, not just hidden: leaving a category's buttons in the DOM
-      // behind `hidden` means anything looking for a symbol still finds
-      // one, which is confusing for assistive technology and for tests.
-      render(popover);
-      popover.hidden = true;
-      return;
-    }
-
     const group = SYMBOL_GROUPS.find((candidate) => candidate.name === name);
-    if (!group) {
-      popover.hidden = true;
-      return;
-    }
+    if (!group) return;
 
     render(
       popover,
-      // No category heading: the active tab directly above already says
-      // which group this is, and the row it would take is a row of keys.
       el(
         'div.symbol-popover-head',
         {},
-        button('✕', () => show(null), {
+        button('✕', () => close(), {
           class: 'ghost symbol-close',
           'data-action': 'close-symbols',
           title: 'Close the symbol palette',
@@ -517,80 +581,46 @@ function symbolTabs(
         group.symbols.map((symbol) =>
           button(
             symbol.char,
-            () => {
-              const target = targetField();
-              if (target) inserters.get(target)?.(textFor(symbol));
-              // Deliberately left open: the next symbol is usually one tap
-              // away, and closing after each would double the work.
-            },
+            () => inserters.get(fieldName)?.(textFor(symbol)),
             {
               class: 'ghost symbol-key',
               'data-symbol': symbol.char,
               title: `${symbol.char} — ${symbol.name}`,
               'aria-label': symbol.name,
+              // Keeps the textarea focused, so the on-screen keyboard does
+              // not close and reopen on every symbol. Without this, iOS
+              // dismisses it the moment the button takes focus.
+              onMousedown: (ev: Event) => ev.preventDefault(),
+              onTouchstart: (ev: Event) => ev.preventDefault(),
             },
           ),
         ),
       ),
     );
     popover.hidden = false;
+    fitAbove(popover, tabs, control);
   };
 
   render(
     tabs,
     SYMBOL_GROUPS.map((group) =>
-      button(
-        group.name,
-        () => show(open === group.name ? null : group.name),
-        {
-          class: 'ghost symbol-tab',
-          'data-category': group.name,
-          'aria-expanded': 'false',
-        },
-      ),
+      button(group.name, () => show(group.name), {
+        class: 'ghost symbol-tab',
+        'data-category': group.name,
+        'aria-expanded': 'false',
+        onMousedown: (ev: Event) => ev.preventDefault(),
+      }),
     ),
   );
 
-  // The category buttons sit above the block the panel covers, so they
-  // stay reachable while it is open: switching from Sets to Logic
-  // mid-sentence is one tap, not close-then-reopen.
-  const anchor = el('div.symbol-anchor', {}, block, popover);
-  const wrapper = el('div.symbol-palette', {}, tabs, anchor);
-
-  // Escape closes it, which is what every other overlay in the app does
-  // and what a keyboard user will try first.
+  const wrapper = el('div.symbol-palette', {}, popover, tabs);
   wrapper.addEventListener('keydown', (ev) => {
     if ((ev as KeyboardEvent).key === 'Escape' && open !== null) {
       ev.preventDefault();
-      show(null);
+      close();
     }
   });
-
-  const remembered = rememberedCategory();
-  if (remembered && SYMBOL_GROUPS.some((group) => group.name === remembered)) show(remembered);
-
   return wrapper;
-}
-
-const SYMBOLS_CATEGORY_KEY = 'flashy.editor.symbolCategory';
-
-function rememberedCategory(): string | null {
-  try {
-    return localStorage.getItem(SYMBOLS_CATEGORY_KEY);
-  } catch {
-    // Private browsing can refuse storage; closed is the right default
-    // when we cannot know better.
-    return null;
-  }
-}
-
-function rememberCategory(name: string | null): void {
-  try {
-    if (name === null) localStorage.removeItem(SYMBOLS_CATEGORY_KEY);
-    else localStorage.setItem(SYMBOLS_CATEGORY_KEY, name);
-  } catch {
-    // Not remembering is a small loss; failing to open the palette is not.
-  }
 }
 
 

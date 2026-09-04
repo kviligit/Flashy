@@ -651,102 +651,82 @@ async function run(playwright) {
     check('javascript: links lose their href', !kept.badLink.includes('javascript'), kept.badLink);
 
     // --- maths symbols ---
-    // The palette opens over the note-type controls, never over the
-    // fields: a sentence with several symbols in it means several trips
-    // to the palette, and a panel that moved the text would be useless.
+    // A palette above each field, because with an on-screen keyboard up
+    // there is very little page left and the symbols have to be in it.
     await page.goto(`${BASE}#/add`);
     await page.waitForSelector('textarea[data-field]');
+
+    const tabRows = await page.evaluate(() =>
+      [...document.querySelectorAll('.symbol-tabs')].map((tabs) => ({
+        field: tabs.getAttribute('data-tabs'),
+        count: tabs.children.length,
+        rows: new Set([...tabs.children].map((k) => Math.round(k.getBoundingClientRect().top))).size,
+      })),
+    );
+    check('every field has its own symbol tabs', tabRows.length >= 2, JSON.stringify(tabRows));
     check(
-      'the symbol palette starts closed',
-      (await page.locator('[data-symbol="∈"]').count()) === 0,
+      'and the categories fit on one line',
+      tabRows.every((r) => r.rows === 1 && r.count === 5),
+      JSON.stringify(tabRows),
     );
 
-    const fieldBox = async () => page.locator('textarea[data-field="Front"]').boundingBox();
-    const closedAt = await fieldBox();
-
-    await page.locator('[data-category="Sets"]').click({ force: true });
-    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
-    const openAt = await fieldBox();
-    check(
-      'opening it does not move the fields',
-      Math.abs(openAt.y - closedAt.y) < 1,
-      `moved ${Math.round(openAt.y - closedAt.y)}px`,
-    );
-
-    // Every category, because the tallest is the one that would reach the
-    // field, and which one that is changes as symbols are added.
-    const categories = await page
-      .locator('[data-category]')
-      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-category')));
-    let worst = { name: null, gap: Infinity, scrolls: false };
-    for (const name of categories) {
-      await page.locator(`[data-category="${name}"]`).click({ force: true });
-      await page.waitForTimeout(120);
-      const m = await page.evaluate(() => {
-        const pop = document.querySelector('.symbol-popover');
-        const box = pop.getBoundingClientRect();
-        const field = document.querySelector('textarea[data-field="Front"]').getBoundingClientRect();
-        return { gap: field.top - box.bottom, scrolls: pop.scrollHeight > pop.clientHeight + 1 };
-      });
-      if (m.gap < worst.gap) worst = { name, gap: m.gap, scrolls: m.scrolls };
+    // The panel opens upward, so the field being typed into stays visible.
+    for (const name of ['Front', 'Back']) {
+      await page.locator(`[data-tabs="${name}"] [data-category="Sets"]`).click({ force: true });
+      await page.waitForTimeout(150);
+      const m = await page.evaluate((f) => {
+        const pop = document.querySelector('.symbol-popover:not([hidden])').getBoundingClientRect();
+        const box = document.querySelector(`textarea[data-field="${f}"]`).getBoundingClientRect();
+        const open = document.querySelectorAll('.symbol-popover:not([hidden])').length;
+        return { clear: box.top - pop.bottom, open };
+      }, name);
+      check(`the ${name} panel opens above its own field`, m.clear > 0, `${Math.round(m.clear)}px`);
+      check('and only one panel is open at a time', m.open === 1, `${m.open} open`);
     }
-    // Flush is fine; overlapping is not. On a wide screen the panel is
-    // content-sized and happens to end exactly where the field begins.
-    check(
-      'and no category ever covers the field',
-      worst.gap > -1,
-      `${worst.name} overlapped by ${(-worst.gap).toFixed(1)}px`,
-    );
-    check(
-      'nor has to be scrolled to reach its symbols',
-      worst.scrolls === false,
-      `${worst.name} scrolls`,
-    );
 
-    // Switching category mid-sentence must not mean closing first.
-    await page.locator('[data-category="Sets"]').click({ force: true });
-    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
-    await page.locator('[data-category="Logic"]').click({ force: true });
-    await page.waitForSelector('[data-symbol="∀"]', { state: 'visible' });
-    check('the category buttons stay reachable while it is open', true);
+    // The loop above left Back's panel open, and the category buttons
+    // toggle, so close it before opening it again below.
+    await page.click('[data-action="close-symbols"]');
 
-    // The point of the whole thing: several symbols into one sentence,
-    // with the caret where it should be after each.
-    await page.locator('[data-category="Sets"]').click({ force: true });
-    await page.waitForSelector('[data-symbol="∈"]', { state: 'visible' });
-    await page.fill('textarea[data-field="Front"]', 'x  A  B');
+    // Inserting goes into the field the palette belongs to, not whichever
+    // was last touched, and several symbols go in without reopening.
+    await page.fill('textarea[data-field="Front"]', 'front stays put');
+    await page.fill('textarea[data-field="Back"]', 'x  A');
+    await page.locator('[data-tabs="Back"] [data-category="Sets"]').click({ force: true });
+    await page.waitForSelector('[data-symbols="Back"] [data-symbol="∈"]', { state: 'visible' });
     await page.evaluate(() => {
-      const box = document.querySelector('textarea[data-field="Front"]');
+      const box = document.querySelector('textarea[data-field="Back"]');
       box.focus();
       box.setSelectionRange(2, 2);
     });
     await page.click('[data-symbol="∈"]');
-    await page.evaluate(() => {
-      const box = document.querySelector('textarea[data-field="Front"]');
-      box.setSelectionRange(6, 6);
-    });
-    await page.click('[data-symbol="∪"]');
-    const sentence = await page.inputValue('textarea[data-field="Front"]');
-    check('several symbols go into one sentence', sentence === 'x ∈ A ∪ B', JSON.stringify(sentence));
+    await page.click('[data-symbol="⟨"]');
     check(
-      'and the palette is still open afterwards',
-      await page.locator('[data-symbol="∈"]').isVisible(),
+      'the palette inserts into its own field',
+      (await page.inputValue('textarea[data-field="Back"]')) === 'x ∈⟨ A',
+      JSON.stringify(await page.inputValue('textarea[data-field="Back"]')),
+    );
+    check(
+      'and leaves the other field alone',
+      (await page.inputValue('textarea[data-field="Front"]')) === 'front stays put',
+    );
+    check(
+      'and stays open across insertions',
+      await page.locator('[data-symbols="Back"] [data-symbol="∈"]').isVisible(),
     );
 
-    const tapTargets = await page
-      .locator('.symbol-key')
-      .evaluateAll((nodes) => nodes.map((n) => Math.round(n.getBoundingClientRect().height)));
+    // The tuple brackets belong with the sets, not filed under "Other".
+    const setChars = await page
+      .locator('[data-symbols="Back"] .symbol-key')
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-symbol')));
     check(
-      'the symbol keys are tappable',
-      tapTargets.length > 5 && tapTargets.every((h) => h >= 44),
-      `${tapTargets.length} keys, smallest ${Math.min(...tapTargets)}px`,
+      'the tuple brackets are in Sets',
+      setChars.includes('⟨') && setChars.includes('⟩'),
+      setChars.join(''),
     );
 
     await page.click('[data-action="close-symbols"]');
-    check(
-      'and it closes',
-      (await page.locator('[data-symbol="∈"]').count()) === 0,
-    );
+    check('and it closes', (await page.locator('[data-symbol="∈"]').count()) === 0);
 
     // `<a,b>` is parsed as an anchor tag and disappears from the card.
     await page.fill('textarea[data-field="Front"]', '<a,b> er et ordnet par');
@@ -757,7 +737,7 @@ async function run(playwright) {
     );
 
     await page.fill('textarea[data-field="Front"]', '');
-    await page.locator('[data-category="Other"]').click({ force: true });
+    await page.locator('[data-tabs="Front"] [data-category="Other"]').click({ force: true });
     await page.waitForSelector('[data-symbol="<"]', { state: 'visible' });
     await page.click('[data-symbol="<"]');
     await page.click('[data-symbol=">"]');
