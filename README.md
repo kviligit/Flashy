@@ -33,9 +33,24 @@
 
 
 A local-first spaced-repetition flashcard webapp implementing **FSRS-6**.
-Dark mode only. **Zero runtime dependencies** — no framework, no bundler, no
-package installs. TypeScript compiled straight to native ES modules that the
-browser loads.
+Dark mode only. TypeScript compiled straight to native ES modules that the
+browser loads — no framework, no bundler, no package installs.
+
+> **On having no dependencies.** This was a constraint before it was a
+> choice: the environment this was built in cannot reach a package
+> registry, so everything here is hand-written. That is fine for some of
+> it — the 109-line DOM helper instead of React, the absence of a
+> bundler, the CSV parser — and it was a mistake for the rest. The HTML
+> sanitiser was written by hand and shipped with a critical XSS hole that
+> an audit had to find. The cryptography behind the unreleased sync
+> feature is hand-written too, which is why that feature is unreleased.
+>
+> The useful rule is not "avoid dependencies". It is: write it yourself
+> when the thing is small, fully specified, and testable against an
+> authority; take the library when getting it wrong is dangerous, because
+> what a library buys you there is years of other people attacking it,
+> not lines of code. Where this repository breaks that rule, it is
+> because it had to, and it says so at the point where it does.
 
 ## Running
 
