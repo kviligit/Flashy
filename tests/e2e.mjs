@@ -225,6 +225,85 @@ async function run(playwright) {
     await page.waitForTimeout(150);
     check('CSV import handles quoted commas', (await page.getAttribute('[data-count]', 'data-count')) === '1');
 
+    // --- export for Anki ---
+    //
+    // The one-way door out of this app: cards written here, opened in Anki
+    // on a computer. The file has to import with no column mapping at all,
+    // which means the directives at the top have to be exactly right — so
+    // this checks the bytes, not just that a file arrived.
+    await page.goto(`${BASE}#/manage`);
+    await page.waitForSelector('[data-action="anki-prepare"]');
+    await page.click('[data-action="anki-prepare"]');
+    await page.waitForSelector('[data-action="anki-share"]');
+    const [ankiDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.click('[data-action="anki-share"]'),
+    ]);
+    const ankiPath = join(scratch, 'anki.txt');
+    await ankiDownload.saveAs(ankiPath);
+    check(
+      'the Anki file is named for its note type and dated',
+      /^flashy-basic-\d{4}-\d{2}-\d{2}\.txt$/.test(ankiDownload.suggestedFilename()),
+      ankiDownload.suggestedFilename(),
+    );
+
+    const ankiText = readFileSync(ankiPath, 'utf8');
+    const ankiLines = ankiText.split('\n');
+    const ankiDirectives = [];
+    while (ankiLines.length && ankiLines[0].startsWith('#')) ankiDirectives.push(ankiLines.shift());
+    check(
+      'Anki is told the separator, that fields are HTML, and which note type',
+      ankiDirectives.includes('#separator:tab') &&
+        ankiDirectives.includes('#html:true') &&
+        ankiDirectives.includes('#notetype:Basic'),
+      ankiDirectives.join(' | '),
+    );
+    check(
+      'and which columns hold the tags, the deck and the id',
+      ankiDirectives.includes('#tags column:3') &&
+        ankiDirectives.includes('#deck column:4') &&
+        ankiDirectives.includes('#guid column:5'),
+      ankiDirectives.join(' | '),
+    );
+    check(
+      'the columns are named, fields first',
+      ankiDirectives.includes('#columns:Front\tBack\tTags\tDeck\tGUID'),
+      ankiDirectives.join(' | '),
+    );
+
+    const ankiRows = ankiLines.filter((line) => line.length > 0).map((line) => line.split('\t'));
+    check(
+      'every Basic note is in the file',
+      ankiRows.length === 5 && ankiRows.every((row) => row.length === 5),
+      `${ankiRows.length} rows`,
+    );
+    check(
+      'a note carries its front, its deck and an id',
+      ankiRows.some((row) => row[0] === 'hola' && row[3] === 'Default' && row[4].length > 0),
+      ankiRows.map((row) => row.join('/')).join(' | '),
+    );
+    check(
+      'the imported tag came along',
+      ankiRows.some((row) => row[0] === 'hola' && row[2].split(' ').includes('spanish')),
+      ankiRows.map((row) => row[2]).join(' | '),
+    );
+
+    // Two note types mean two files, because the columns are the fields.
+    // Back returns to the picker; a hash that is already current would not
+    // re-render anything.
+    await page.click('[data-action="anki-back"]');
+    await page.waitForSelector('[data-action="anki-prepare"]');
+    const ankiTypes = await page.locator('[data-action="anki-prepare"]').evaluate((el) => {
+      const card = el.closest('.card');
+      const select = card ? card.querySelector('select') : null;
+      return select ? Array.from(select.options).map((o) => o.textContent) : [];
+    });
+    check(
+      'each note type is offered separately, busiest first',
+      ankiTypes.length === 2 && /^Basic — 5 notes/.test(ankiTypes[0]),
+      ankiTypes.join(' | '),
+    );
+
     // --- settings ---
     await page.goto(`${BASE}#/settings`);
     await page.waitForSelector('[data-preset]');
@@ -1033,6 +1112,78 @@ async function run(playwright) {
     check('the answer buttons are reachable without scrolling', layout.barVisible);
     check('the review screen needs no scrolling on an iPhone SE', !layout.scrolls);
     await iosApp.close();
+
+    // --- the share sheet, which is how a file leaves an iPhone ---
+    //
+    // A Home Screen web app is where this app has to live, because that is
+    // what exempts it from Safari's storage eviction — and it is also where
+    // `<a download>` quietly does nothing. So the export has to reach the
+    // share sheet instead. Chromium has no share sheet to drive, so the API
+    // is stubbed and the checks are about what the app hands it: a real
+    // file, built before the press rather than during it.
+    const sharing = await browser.newContext({
+      viewport: { width: 375, height: 647 },
+      deviceScaleFactor: 2,
+      isMobile: true,
+      hasTouch: true,
+      userAgent: devices['iPhone 13'].userAgent,
+      acceptDownloads: true,
+    });
+    await sharing.addInitScript(() => {
+      Object.defineProperty(navigator, 'standalone', { get: () => true, configurable: true });
+      window.__shared = [];
+      navigator.canShare = (data) => Array.isArray(data && data.files) && data.files.length > 0;
+      navigator.share = async (data) => {
+        const file = data.files[0];
+        window.__shared.push({
+          name: file.name,
+          type: file.type,
+          title: data.title || '',
+          text: await file.text(),
+        });
+      };
+    });
+    const sharePage = await sharing.newPage();
+    sharePage.on('pageerror', (error) => iosErrors.push(String(error)));
+    let sharePageDownloads = 0;
+    sharePage.on('download', () => {
+      sharePageDownloads += 1;
+    });
+
+    await sharePage.goto(`${BASE}#/add`);
+    await sharePage.waitForSelector('textarea[data-field]');
+    await sharePage.fill('textarea[data-field="Front"]', 'snitt');
+    await sharePage.fill('textarea[data-field="Back"]', 'A ∩ B');
+    await sharePage.click('button:has-text("Add note")');
+    await sharePage.waitForTimeout(200);
+
+    await sharePage.goto(`${BASE}#/manage`);
+    await sharePage.waitForSelector('[data-action="anki-prepare"]');
+    await sharePage.click('[data-action="anki-prepare"]');
+    await sharePage.waitForSelector('[data-action="anki-share"]');
+    await sharePage.click('[data-action="anki-share"]');
+    await sharePage.waitForTimeout(400);
+
+    const shared = await sharePage.evaluate(() => window.__shared);
+    check('an iPhone gets the share sheet, not a download', shared.length === 1 && sharePageDownloads === 0,
+      `${shared.length} shared, ${sharePageDownloads} downloaded`);
+    check(
+      'the shared file is a named text file with a title for the sheet',
+      shared[0] && /\.txt$/.test(shared[0].name) && /^text\/plain/.test(shared[0].type) && shared[0].title.length > 0,
+      JSON.stringify(shared[0] && { name: shared[0].name, type: shared[0].type, title: shared[0].title }),
+    );
+    check(
+      'and it holds the note that was just written, symbols intact',
+      shared[0] && shared[0].text.includes('snitt\tA ∩ B\t') && shared[0].text.startsWith('#separator:tab'),
+      shared[0] ? JSON.stringify(shared[0].text.slice(-60)) : 'nothing',
+    );
+
+    // Warning about media before the file leaves, not after it arrives
+    // broken: a note with an image says so on the summary.
+    const mediaWarnings = await sharePage.locator('.card:has([data-action="anki-share"]) .warn').count();
+    check('a collection with no media shows no media warning', mediaWarnings === 0);
+
+    await sharing.close();
 
     check('no uncaught errors on iOS', iosErrors.length === 0, iosErrors.slice(0, 3).join(' | '));
   } finally {

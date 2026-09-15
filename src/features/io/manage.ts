@@ -19,6 +19,14 @@ import {
   type ImportMode,
   type ImportProgress,
 } from '../../collection/io.js';
+import {
+  ANKI_MINIMUM_VERSION,
+  ankiExportPlan,
+  exportForAnki,
+  type AnkiExportFile,
+  type AnkiExportGroup,
+} from '../../collection/anki.js';
+import { deliverFile, textFile } from '../../ui/deliver.js';
 import type { Deck, NoteType } from '../../domain/types.js';
 import { cleanupUnusedMedia, mediaUsage, type MediaUsage } from '../../collection/media.js';
 import { formatFileSize, mediaKind } from '../../domain/media.js';
@@ -47,6 +55,7 @@ async function draw(root: HTMLElement, ctx: AppContext): Promise<void> {
       text: `${counts.decks} decks · ${counts.notes} notes · ${counts.cards} cards · ${counts.reviews} reviews. Everything happens on this device; nothing is uploaded.`,
     }),
     backupCard(ctx, () => void draw(root, ctx)),
+    ankiCard(ctx),
     csvExportCard(ctx, noteTypes),
     csvImportCard(ctx, noteTypes, decks, () => void draw(root, ctx)),
     await mediaCard(ctx, () => void draw(root, ctx)),
@@ -210,6 +219,177 @@ function showProgress(title: string): ProgressPanel {
       overlay.remove();
     },
   };
+}
+
+// --- Anki ----------------------------------------------------------------
+
+/**
+ * A note-type picker that actually starts on the chosen one.
+ *
+ * `select()` applies its props before appending options, and a `value`
+ * given to a `<select>` with no options yet is silently discarded — so the
+ * selection is made afterwards, once there is something to select.
+ */
+function noteTypeSelect(
+  plan: AnkiExportGroup[],
+  chosen: string,
+  onPick: (value: string) => void,
+): HTMLSelectElement {
+  const control = select(
+    plan.map((g) => ({
+      value: g.noteTypeId,
+      label: `${g.noteTypeName} — ${g.notes} note${g.notes === 1 ? '' : 's'}`,
+    })),
+    { onChange: (ev: Event) => onPick((ev.target as HTMLSelectElement).value) },
+  );
+  control.value = chosen;
+  return control;
+}
+
+/**
+ * The way out: cards written here, opened in Anki over there.
+ *
+ * Two presses rather than one, and the split is not decoration. Building
+ * the file reads IndexedDB, and Safari will not open a share sheet from a
+ * handler that has been waiting on a promise — so the first press builds,
+ * the second shares, and the second has nothing to wait for. The pause in
+ * between is also where the summary goes, which is the only chance to say
+ * that images will not travel before the file is already on its way.
+ */
+function ankiCard(ctx: AppContext): HTMLElement {
+  const host = el('div.card.col', {});
+  let plan: AnkiExportGroup[] = [];
+  let chosen = '';
+  let ready: AnkiExportFile | null = null;
+
+  const head = (): HTMLElement[] => [
+    el('h3', { text: 'Send to Anki' }),
+    el('p.muted', {
+      text:
+        'A text file Anki imports without any column mapping: the fields, the tags and the deck ' +
+        `each note is in. Scheduling stays here. Needs Anki ${ANKI_MINIMUM_VERSION} or newer.`,
+    }),
+  ];
+
+  const drawEmpty = (): void => {
+    render(host, ...head(), el('p.muted', { text: 'There are no notes to export yet.' }));
+  };
+
+  const drawChoice = (): void => {
+    const group = plan.find((g) => g.noteTypeId === chosen) ?? plan[0]!;
+    const pieces: HTMLElement[] = [];
+
+    if (plan.length > 1) {
+      pieces.push(
+        el('p.muted', {
+          text: 'Anki reads one note type per file, so export them one at a time.',
+        }),
+        field('Note type', noteTypeSelect(plan, chosen, (value) => {
+          chosen = value;
+          drawChoice();
+        })),
+      );
+    }
+
+    pieces.push(
+      el('p', {
+        text: `${group.notes} note${group.notes === 1 ? '' : 's'} of type “${group.noteTypeName}”, across ${
+          group.decks.length
+        } deck${group.decks.length === 1 ? '' : 's'}.`,
+      }),
+      button(
+        'Prepare file',
+        () => {
+          void (async () => {
+            try {
+              ready = await exportForAnki(ctx.db, group.noteTypeId);
+              drawReady();
+            } catch (error) {
+              toast(error instanceof Error ? error.message : String(error), 'error');
+            }
+          })();
+        },
+        { class: 'primary', 'data-action': 'anki-prepare' },
+      ),
+    );
+
+    render(host, ...head(), ...pieces);
+  };
+
+  const drawReady = (): void => {
+    const file = ready;
+    if (!file) return drawChoice();
+
+    const steps = el(
+      'ol.steps',
+      {},
+      el('li', { text: 'Save it to Files, or AirDrop it straight to your computer.' }),
+      el('li', { text: 'On the computer, open Anki and choose File → Import.' }),
+      el('li', { text: `Pick ${file.filename} and press Import — the columns are already set up.` }),
+    );
+
+    render(
+      host,
+      ...head(),
+      el('p', {
+        text: `${file.filename} — ${file.notes} note${file.notes === 1 ? '' : 's'}, ${
+          file.decks.length
+        } deck${file.decks.length === 1 ? '' : 's'}.`,
+      }),
+      file.decks.length > 0 ? el('p.muted', { text: `Decks: ${file.decks.join(', ')}` }) : null,
+      file.withMedia > 0
+        ? el('p.warn', {
+            text: `${file.withMedia} note${file.withMedia === 1 ? ' uses' : 's use'} an image or a sound. ` +
+              'The text comes across but the files do not — add those again in Anki.',
+          })
+        : null,
+      el(
+        'div.row',
+        {},
+        button(
+          'Save or share…',
+          () => {
+            // No await before this point: the share sheet needs the click.
+            void deliverFile(textFile(file.filename, file.text, file.mime), {
+              title: 'Flashy notes for Anki',
+            }).then((result) => {
+              if (result.completed) toast('File ready for Anki.', 'success');
+            });
+          },
+          { class: 'primary', 'data-action': 'anki-share' },
+        ),
+        button(
+          'Copy text',
+          () => {
+            void navigator.clipboard
+              ?.writeText(file.text)
+              .then(() => toast('Copied. Paste it into a file on your computer.', 'success'))
+              .catch(() => toast('This browser would not let the app copy.', 'error'));
+          },
+          { 'data-action': 'anki-copy' },
+        ),
+        button(
+          'Back',
+          () => {
+            ready = null;
+            drawChoice();
+          },
+          { 'data-action': 'anki-back' },
+        ),
+      ),
+      steps,
+    );
+  };
+
+  void (async () => {
+    plan = await ankiExportPlan(ctx.db);
+    chosen = plan[0]?.noteTypeId ?? '';
+    if (plan.length === 0) drawEmpty();
+    else drawChoice();
+  })();
+
+  render(host, ...head());
+  return host;
 }
 
 // --- CSV export ----------------------------------------------------------
@@ -511,15 +691,14 @@ function csvImportCard(
 
 // --- helpers -------------------------------------------------------------
 
+/**
+ * A backup or a CSV, saved the way this device saves things.
+ *
+ * Both are built from IndexedDB before the call, so the share sheet still
+ * has the click's activation behind it where one is offered.
+ */
 function download(filename: string, contents: string, mime: string): void {
-  const blob = new Blob([contents], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const link = el('a', { href: url, download: filename }) as HTMLAnchorElement;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  // Revoking immediately can cancel the download in some browsers.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  void deliverFile(textFile(filename, contents, mime), { title: filename });
 }
 
 

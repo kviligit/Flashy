@@ -229,6 +229,11 @@ Some of the load-bearing ones:
   divergence.
 - **CSV and backup round-trips**, including quoted commas, embedded
   newlines and doubled quotes.
+- **The Anki export checked byte by byte** — every directive line and every
+  column number — because a file that imports with one column out of place
+  is worse than one that refuses to import at all. The share-sheet path is
+  driven with the Web Share API stubbed, asserting the app hands over a real
+  file and that nothing falls through to a download.
 - **A schema migration test** that builds a v1 database by hand, opens it
   with the current code, and checks the data survived and the new indexes
   and stores are there. This is the one path that can silently destroy
@@ -260,6 +265,26 @@ lists them all. In the editor, `Ctrl`/`Cmd`+`Enter` saves.
 Everything is in IndexedDB under the database `flashy`. Nothing leaves the
 device. Import & export produces a full JSON backup — every card's
 scheduling state and complete history — or a CSV of your notes.
+
+### Getting your cards into Anki
+
+**Import & export → Send to Anki** writes a text file Anki imports with no
+column mapping at all: the header carries `#separator:tab`, `#html:true`,
+`#notetype:`, and the column numbers for the tags, the deck and a stable id
+(Anki 2.1.54 or newer). One file per note type, because the columns *are*
+that note type's fields. Scheduling deliberately stays here — Anki's
+scheduler is not this one, and a half-translated review history that
+silently reschedules a year of work is worse than a clean start.
+
+Because the id in each row is the note's own, importing the same file twice
+updates those notes rather than duplicating them.
+
+On an iPhone the file goes through the share sheet rather than a download —
+`<a download>` does nothing at all in a Home Screen web app — so Save to
+Files, AirDrop and Mail are all one tap away. Building the file and sharing
+it are two separate presses on purpose: Safari refuses to open a share sheet
+from a handler that has been waiting on a promise, and reading the notes out
+of IndexedDB is exactly such a wait.
 
 ## Notable deliberate choices
 
